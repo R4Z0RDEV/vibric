@@ -31,14 +31,21 @@ export function CommandPalette({
         setIsMounted(true);
     }, []);
 
-    // 위치 계산
+    // 위치 계산 - 패널 바로 위에 고정
     useEffect(() => {
         if (isOpen && anchorRef?.current) {
-            const rect = anchorRef.current.getBoundingClientRect();
-            setPosition({
-                top: rect.top - 8,
-                left: rect.left,
-            });
+            // liquid-glass 패널 찾기
+            const chatPanel = anchorRef.current.closest('.liquid-glass');
+            const panelRect = chatPanel?.getBoundingClientRect();
+
+            if (panelRect) {
+                const gap = 8;
+                // 패널 TOP 바로 위에 위치 (bottom = panelRect.top - gap)
+                setPosition({
+                    top: Math.max(gap, panelRect.top - gap),
+                    left: panelRect.left,
+                });
+            }
         }
     }, [isOpen, anchorRef]);
 

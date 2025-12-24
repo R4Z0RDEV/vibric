@@ -94,7 +94,10 @@ export function TopBar() {
                 {/* Project Selector */}
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <button className="liquid-glass-button rounded-lg px-3 py-1.5 flex items-center gap-1.5 text-white text-sm font-medium">
+                        <button
+                            className="liquid-glass-button rounded-lg px-3 py-1.5 flex items-center gap-1.5 text-white text-sm font-medium"
+                            suppressHydrationWarning
+                        >
                             <span className="relative z-10">project</span>
                             <ChevronDown className="w-3 h-3 text-white/70 relative z-10" />
                         </button>

@@ -19,6 +19,7 @@ export function useWebContainer() {
         mountFiles,
         startDevServer,
         writeFile,
+        deleteFile,
         appendTerminalOutput,
         reset
     } = useWebContainerStore();
@@ -87,6 +88,21 @@ export function useWebContainer() {
         }
     }, [instance, status, writeFile, appendTerminalOutput]);
 
+    // 파일 삭제 시 WebContainer에서 제거
+    const removeFile = useCallback(async (path: string) => {
+        if (!instance || status !== 'running') {
+            console.warn('[useWebContainer] Cannot remove file - not running');
+            return;
+        }
+
+        try {
+            await deleteFile(path);
+            appendTerminalOutput(`[Vibric] 파일 삭제: ${path}\n`);
+        } catch (error) {
+            console.error('[useWebContainer] Remove file failed:', error);
+        }
+    }, [instance, status, deleteFile, appendTerminalOutput]);
+
     // previewUrl이 변경되면 FileSystemStore에도 반영
     useEffect(() => {
         if (previewUrl) {
@@ -104,6 +120,7 @@ export function useWebContainer() {
         isBooted,
         initialize,
         syncFile,
+        removeFile,
         reset,
     };
 }

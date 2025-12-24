@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useRef, RefObject, useEffect } from 'react';
-import { useCanvasStore, SelectedElementInfo } from '@/stores/canvas-store';
+import { useCanvasStore, type SelectedElementInfo } from '@/stores/canvas-store';
+import { useChatStore } from '@/stores/chat-store';
 import { Send, Sparkles, X, Loader2 } from 'lucide-react';
 
 interface FloatingAIInputProps {
@@ -13,6 +14,7 @@ export function FloatingAIInput({ containerRef, selectedElement }: FloatingAIInp
     const [input, setInput] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
     const { isAIProcessing, setAIProcessing, setSelectedElement } = useCanvasStore();
+    const { addMessage } = useChatStore();
 
     // 자동 포커스
     useEffect(() => {
@@ -25,21 +27,74 @@ export function FloatingAIInput({ containerRef, selectedElement }: FloatingAIInp
 
         setAIProcessing(true);
 
+        // 1. 사용자 메시지 추가 (ChatStore)
+        const contextPrefix = `[Context: ${selectedElement.name}] `;
+        const userContent = contextPrefix + input.trim();
+        addMessage({
+            role: 'user',
+            content: userContent,
+        });
+
+        // 2. AI 응답 메시지 생성 (스트리밍용)
+        addMessage({
+            role: 'assistant',
+            content: '',
+            isStreaming: true,
+        });
+
         try {
-            // TODO: 실제 AI API 호출
-            console.log('AI 수정 요청:', {
-                element: selectedElement,
-                request: input.trim()
+            // 3. 실제 AI API 호출
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: [{ role: 'user', content: userContent }],
+                    mode: 'fast',
+                    specStage: 'idle',
+                    model: 'gemini-2.0-flash',
+                }),
             });
 
-            // Mock 지연
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.status}`);
+            }
+
+            // 4. 스트리밍 응답 처리
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            let fullContent = '';
+
+            if (reader) {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    fullContent += chunk;
+
+                    // 마지막 AI 메시지 업데이트
+                    const messages = useChatStore.getState().messages;
+                    const lastMessage = messages.at(-1);
+                    if (lastMessage && lastMessage.role === 'assistant') {
+                        useChatStore.getState().updateMessage(lastMessage.id, fullContent);
+                    }
+                }
+            }
 
             // 성공 후 입력창 닫기
             setInput('');
             setSelectedElement(null);
         } catch (error) {
             console.error('AI 수정 실패:', error);
+            // 마지막 AI 메시지를 에러로 업데이트
+            const messages = useChatStore.getState().messages;
+            const lastMessage = messages.at(-1);
+            if (lastMessage && lastMessage.role === 'assistant') {
+                useChatStore.getState().updateMessage(
+                    lastMessage.id,
+                    `⚠️ AI 수정 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`
+                );
+            }
         } finally {
             setAIProcessing(false);
         }

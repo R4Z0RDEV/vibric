@@ -25,6 +25,7 @@ interface WebContainerState {
     stopDevServer: () => Promise<void>;
     writeFile: (path: string, contents: string) => Promise<void>;
     readFile: (path: string) => Promise<string>;
+    deleteFile: (path: string) => Promise<void>;
     appendTerminalOutput: (line: string) => void;
     clearTerminalOutput: () => void;
     reset: () => void;
@@ -42,7 +43,15 @@ export const useWebContainerStore = create<WebContainerState>((set, get) => ({
     terminalOutput: [],
 
     boot: async () => {
-        // 이미 부팅된 경우 스킵
+        const { status } = get();
+
+        // 이미 부팅 중이거나 부팅된 경우 스킵
+        if (status !== 'idle') {
+            console.log('[WebContainer] Skipping boot - already in status:', status);
+            return;
+        }
+
+        // 이미 인스턴스가 있는 경우 (이전에 부팅됨)
         if (webContainerInstance) {
             set({ instance: webContainerInstance, status: 'ready' });
             return;
@@ -164,6 +173,18 @@ export const useWebContainerStore = create<WebContainerState>((set, get) => ({
             throw new Error('WebContainer not booted');
         }
 
+        // 부모 디렉토리 생성 (mkdir -p 동작)
+        const pathParts = path.split('/').filter(Boolean);
+        if (pathParts.length > 1) {
+            const dirPath = pathParts.slice(0, -1).join('/');
+            try {
+                await instance.fs.mkdir(dirPath, { recursive: true });
+            } catch (err) {
+                // 이미 존재하는 경우 무시
+                console.log(`[WebContainer] Directory exists or created: ${dirPath}`);
+            }
+        }
+
         await instance.fs.writeFile(path, contents);
     },
 
@@ -174,6 +195,15 @@ export const useWebContainerStore = create<WebContainerState>((set, get) => ({
         }
 
         return await instance.fs.readFile(path, 'utf-8');
+    },
+
+    deleteFile: async (path) => {
+        const { instance } = get();
+        if (!instance) {
+            throw new Error('WebContainer not booted');
+        }
+
+        await instance.fs.rm(path, { recursive: true });
     },
 
     appendTerminalOutput: (line) => {

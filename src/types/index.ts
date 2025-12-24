@@ -8,6 +8,16 @@ export interface Message {
     content: string;
     timestamp: Date;
     isStreaming?: boolean;
+    // AI Thinking UI용 필드 (영구 저장)
+    thinking?: { title: string; content: string }[];
+    actions?: {
+        type: 'create_file' | 'modify_file' | 'delete_file';
+        path: string;
+        lines?: string;
+        content: string;
+        status: 'pending' | 'in_progress' | 'completed' | 'error';
+    }[];
+    thinkingDuration?: number; // 초 단위
 }
 
 export interface CanvasElement {

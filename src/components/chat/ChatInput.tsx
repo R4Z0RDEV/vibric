@@ -1,11 +1,12 @@
 'use client';
 
-import { useRef, useState, useEffect, ReactNode } from 'react';
+import { useRef, useState, useEffect, ReactNode, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Send, Plus, Slash, AtSign, ChevronDown } from 'lucide-react';
+import { Send, Plus, Slash, AtSign, ChevronDown, X, Image as ImageIcon } from 'lucide-react';
 import { useChatStore, ChatInputMode, SelectedModel } from '@/stores/chat-store';
 import { MentionDropdown } from './MentionDropdown';
 import { CommandPalette, DEFAULT_COMMANDS } from './CommandPalette';
+import { MentionPill, CommandPill } from './InputPill';
 import type { MentionItem, CommandItem } from '@/types';
 
 // AI 모델 로고 컴포넌트
@@ -70,9 +71,13 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
 
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const modelButtonRef = useRef<HTMLButtonElement>(null);
+    const mentionButtonRef = useRef<HTMLButtonElement>(null);
+    const commandButtonRef = useRef<HTMLButtonElement>(null);
     const [showModelDropdown, setShowModelDropdown] = useState(false);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
     const [isMounted, setIsMounted] = useState(false);
+
+    const inputContainerRef = useRef<HTMLDivElement>(null);
 
     // 멘션 및 명령어 상태
     const [showMention, setShowMention] = useState(false);
@@ -80,6 +85,11 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
     const [showCommand, setShowCommand] = useState(false);
     const [commandQuery, setCommandQuery] = useState('');
     const [mentions, setMentions] = useState<MentionItem[]>([]);
+    const [activeCommand, setActiveCommand] = useState<CommandItem | null>(null);
+    const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const modelDropdownRef = useRef<HTMLDivElement>(null);
 
     // 클라이언트 마운트 확인
     useEffect(() => {
@@ -96,6 +106,38 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
             });
         }
     }, [showModelDropdown]);
+
+    // 모델 드롭다운 외부 클릭 감지
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (
+                showModelDropdown &&
+                modelButtonRef.current &&
+                !modelButtonRef.current.contains(e.target as Node) &&
+                modelDropdownRef.current &&
+                !modelDropdownRef.current.contains(e.target as Node)
+            ) {
+                setShowModelDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showModelDropdown]);
+
+    // 파일 선택 핸들러
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (files) {
+            setAttachedFiles(prev => [...prev, ...Array.from(files)]);
+        }
+        // 같은 파일 다시 선택 가능하도록 리셋
+        e.target.value = '';
+    };
+
+    // 파일 삭제 핸들러
+    const handleFileRemove = (index: number) => {
+        setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+    };
 
     // @ 및 / 입력 감지
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -134,8 +176,8 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
         const textBeforeCursor = inputValue.slice(0, cursorPos);
         const textAfterCursor = inputValue.slice(cursorPos);
 
-        // @ 이후 텍스트 교체
-        const newTextBefore = textBeforeCursor.replace(/@\S*$/, `@${item.name} `);
+        // @ 이후 텍스트 제거 (Pill로 표시하므로)
+        const newTextBefore = textBeforeCursor.replace(/@\S*$/, '');
         setInputValue(newTextBefore + textAfterCursor);
         setMentions((prev) => [...prev, item]);
         setShowMention(false);
@@ -150,9 +192,10 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
         const textBeforeCursor = inputValue.slice(0, cursorPos);
         const textAfterCursor = inputValue.slice(cursorPos);
 
-        // 명령어 삽입
-        const newTextBefore = textBeforeCursor.replace(/\/\S*$/, `/${command.name} `);
+        // / 이후 텍스트 제거 (Pill로 표시하므로)
+        const newTextBefore = textBeforeCursor.replace(/\/\S*$/, '');
         setInputValue(newTextBefore + textAfterCursor);
+        setActiveCommand(command);
         setShowCommand(false);
 
         // 액션 실행
@@ -173,9 +216,13 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
 
     // 전송 핸들러
     const handleSubmit = () => {
-        if (!inputValue.trim() || isLoading) return;
+        if (!inputValue.trim() && mentions.length === 0 && !activeCommand && attachedFiles.length === 0) return;
+        if (isLoading) return;
         onSubmit(inputValue.trim());
         setInputValue('');
+        setMentions([]);
+        setActiveCommand(null);
+        setAttachedFiles([]);
 
         // 높이 리셋
         if (inputRef.current) {
@@ -238,7 +285,55 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
                     </div>
 
                     {/* Input Area */}
-                    <div className="px-4 py-3">
+                    <div ref={inputContainerRef} className="px-4 py-3 relative">
+                        {/* Pills Area - Command, Mention, Files */}
+                        {(mentions.length > 0 || activeCommand || attachedFiles.length > 0) && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                                {/* Command Pill */}
+                                {activeCommand && (
+                                    <CommandPill
+                                        command={activeCommand}
+                                        onRemove={() => setActiveCommand(null)}
+                                    />
+                                )}
+                                {/* Mention Pills */}
+                                {mentions.map((item) => (
+                                    <MentionPill
+                                        key={item.id}
+                                        item={item}
+                                        onRemove={() => setMentions((prev) => prev.filter((m) => m.id !== item.id))}
+                                    />
+                                ))}
+                                {/* Attached File Previews */}
+                                {attachedFiles.map((file, index) => (
+                                    <div
+                                        key={`${file.name}-${index}`}
+                                        className="
+                                            flex items-center gap-2 px-2 py-1
+                                            bg-white/10 rounded-lg border border-white/20
+                                            text-sm text-white/80
+                                        "
+                                    >
+                                        {file.type.startsWith('image/') ? (
+                                            <img
+                                                src={URL.createObjectURL(file)}
+                                                alt={file.name}
+                                                className="w-6 h-6 rounded object-cover"
+                                            />
+                                        ) : (
+                                            <ImageIcon size={14} className="text-white/60" />
+                                        )}
+                                        <span className="max-w-[100px] truncate">{file.name}</span>
+                                        <button
+                                            onClick={() => handleFileRemove(index)}
+                                            className="text-white/40 hover:text-white transition-colors"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         <textarea
                             ref={inputRef}
                             value={inputValue}
@@ -264,8 +359,18 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
                     {/* Action Buttons */}
                     <div className="relative flex items-center justify-between px-4 pb-3">
                         <div className="flex items-center gap-2">
+                            {/* Hidden File Input */}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                onChange={handleFileSelect}
+                                className="hidden"
+                            />
                             {/* + 파일 업로드 */}
                             <button
+                                onClick={() => fileInputRef.current?.click()}
                                 className="
                                 w-9 h-9 rounded-full
                                 liquid-glass-button
@@ -280,6 +385,7 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
 
                             {/* / 명령어 */}
                             <button
+                                ref={commandButtonRef}
                                 onClick={() => setShowCommand(!showCommand)}
                                 className={`
                                 w-9 h-9 rounded-lg
@@ -294,6 +400,7 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
 
                             {/* @ 멘션 */}
                             <button
+                                ref={mentionButtonRef}
                                 onClick={() => setShowMention(!showMention)}
                                 className={`
                                 w-9 h-9 rounded-lg
@@ -325,21 +432,23 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
                             </div>
                         </div>
 
-                        {/* Mention Dropdown - Action Buttons 컨테이너 내부 */}
+                        {/* Mention Dropdown - Portal로 렌더링 (텍스트박스 위) */}
                         <MentionDropdown
                             isOpen={showMention}
                             searchQuery={mentionQuery}
                             onSelect={handleMentionSelect}
                             onClose={() => setShowMention(false)}
+                            anchorRef={inputContainerRef}
                         />
 
-                        {/* Command Palette - Action Buttons 컨테이너 내부 */}
+                        {/* Command Palette - Portal로 렌더링 (텍스트박스 위) */}
                         <CommandPalette
                             isOpen={showCommand}
                             searchQuery={commandQuery}
                             onSelect={handleCommandSelect}
                             onClose={() => setShowCommand(false)}
                             commands={commands}
+                            anchorRef={inputContainerRef}
                         />
 
                         {/* Send Button */}
@@ -364,6 +473,7 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
             {/* Model Dropdown Portal - 버튼 바로 위에 fixed로 배치 */}
             {isMounted && showModelDropdown && createPortal(
                 <div
+                    ref={modelDropdownRef}
                     className="
                         liquid-glass-card rounded-lg
                         py-1 min-w-[140px]

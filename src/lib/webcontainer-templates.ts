@@ -214,8 +214,44 @@ console.log('Vibric Preview loaded');`
   }
 };
 
-// 기본 파일 노드 생성 (FileSystemStore 초기화용)
+// 기본 파일 노드 생성 (FileSystemStore 초기화용) - 중첩 디렉토리 구조
 export const defaultFileNodes: FileNode[] = [
+  {
+    name: 'src',
+    path: 'src',
+    type: 'directory',
+    isOpen: true,
+    children: [
+      {
+        name: 'components',
+        path: 'src/components',
+        type: 'directory',
+        isOpen: true,
+        children: [],
+      },
+      {
+        name: 'pages',
+        path: 'src/pages',
+        type: 'directory',
+        isOpen: false,
+        children: [],
+      },
+      {
+        name: 'hooks',
+        path: 'src/hooks',
+        type: 'directory',
+        isOpen: false,
+        children: [],
+      },
+      {
+        name: 'lib',
+        path: 'src/lib',
+        type: 'directory',
+        isOpen: false,
+        children: [],
+      },
+    ],
+  },
   {
     name: 'server.js',
     path: 'server.js',
@@ -363,5 +399,133 @@ document.querySelectorAll('[data-vibric-id]').forEach(el => {
     });
 });
 console.log('Vibric Preview loaded');`
+  },
+  {
+    name: 'package.json',
+    path: 'package.json',
+    type: 'file',
+    content: `{
+  "name": "vibric-preview",
+  "version": "1.0.0",
+  "description": "Vibric Preview Project",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  }
+}`
   }
 ];
+
+/**
+ * 파일 트리에 새 파일 추가 (중첩 경로 지원)
+ * 예: addFileToTree(files, 'src/components/Button.tsx', 'content')
+ */
+export function addFileToTree(
+  files: FileNode[],
+  filePath: string,
+  content: string
+): FileNode[] {
+  // 내부 재귀 함수 - currentPath는 현재 탐색 중인 경로
+  const addRecursively = (
+    nodes: FileNode[],
+    parts: string[],
+    currentPathPrefix: string
+  ): FileNode[] => {
+    if (parts.length === 0) return nodes;
+
+    const currentName = parts[0];
+    const fullPath = currentPathPrefix ? `${currentPathPrefix}/${currentName}` : currentName;
+    const isFile = parts.length === 1;
+
+    if (isFile) {
+      // 파일 추가/업데이트
+      const existingIndex = nodes.findIndex(f => f.path === fullPath);
+
+      if (existingIndex >= 0) {
+        // 기존 파일 업데이트
+        const updated = [...nodes];
+        updated[existingIndex] = { ...updated[existingIndex], content };
+        return updated;
+      }
+
+      // 새 파일 추가
+      return [...nodes, {
+        name: currentName,
+        path: fullPath,
+        type: 'file' as const,
+        content
+      }];
+    }
+
+    // 디렉토리 처리
+    const dirIndex = nodes.findIndex(f => f.name === currentName && f.type === 'directory');
+
+    if (dirIndex >= 0) {
+      // 기존 디렉토리에 재귀적으로 추가
+      const updated = [...nodes];
+      updated[dirIndex] = {
+        ...updated[dirIndex],
+        children: addRecursively(updated[dirIndex].children || [], parts.slice(1), fullPath)
+      };
+      return updated;
+    }
+
+    // 새 디렉토리 생성 후 재귀적으로 추가
+    const newDir: FileNode = {
+      name: currentName,
+      path: fullPath,
+      type: 'directory',
+      isOpen: true,
+      children: addRecursively([], parts.slice(1), fullPath)
+    };
+
+    return [...nodes, newDir];
+  };
+
+  const parts = filePath.split('/').filter(Boolean);
+  return addRecursively(files, parts, '');
+}
+
+/**
+ * 파일 트리에서 파일 찾기
+ */
+export function findFileInTree(files: FileNode[], filePath: string): FileNode | undefined {
+  for (const file of files) {
+    if (file.path === filePath) {
+      return file;
+    }
+    if (file.children) {
+      const found = findFileInTree(file.children, filePath);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 파일 트리에서 파일 삭제 (중첩 경로 지원)
+ * 예: removeFileFromTree(files, 'src/components/Button.tsx')
+ */
+export function removeFileFromTree(files: FileNode[], filePath: string): FileNode[] {
+  const removeRecursively = (nodes: FileNode[], targetPath: string): FileNode[] => {
+    return nodes.reduce<FileNode[]>((acc, node) => {
+      // 삭제 대상이면 건너뜀
+      if (node.path === targetPath) {
+        return acc;
+      }
+
+      // 디렉토리면 자식도 재귀적으로 처리
+      if (node.children) {
+        const filteredChildren = removeRecursively(node.children, targetPath);
+        acc.push({ ...node, children: filteredChildren });
+      } else {
+        acc.push(node);
+      }
+
+      return acc;
+    }, []);
+  };
+
+  return removeRecursively(files, filePath);
+}
