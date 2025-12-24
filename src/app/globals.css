@@ -1,26 +1,559 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
+
+/* ===== VIBRIC DESIGN SYSTEM - APPLE LIQUID GLASS ===== */
 
 @theme inline {
+  /* Base Colors */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  /* Fonts */
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+
+  /* Shadcn Colors */
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Radius */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ===== VIBRIC DARK THEME (Default) ===== */
+:root {
+  --radius: 0.625rem;
+
+  /* Base - Zinc Dark */
+  --background: #09090b;
+  --foreground: #fafafa;
+
+  /* Card/Panel */
+  --card: #18181b;
+  --card-foreground: #fafafa;
+
+  /* Popover */
+  --popover: #18181b;
+  --popover-foreground: #fafafa;
+
+  /* Primary - White on Dark */
+  --primary: #fafafa;
+  --primary-foreground: #09090b;
+
+  /* Secondary - Zinc 800 */
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+
+  /* Muted - Zinc 800/400 */
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+
+  /* Accent - Blue */
+  --accent: #3b82f6;
+  --accent-foreground: #fafafa;
+
+  /* Destructive */
+  --destructive: #ef4444;
+
+  /* Border - Zinc 800 */
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #3b82f6;
+
+  /* Chart Colors */
+  --chart-1: #3b82f6;
+  --chart-2: #10b981;
+  --chart-3: #f59e0b;
+  --chart-4: #8b5cf6;
+  --chart-5: #ef4444;
+
+  /* Sidebar */
+  --sidebar: #18181b;
+  --sidebar-foreground: #fafafa;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #fafafa;
+  --sidebar-accent: #27272a;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: #27272a;
+  --sidebar-ring: #3b82f6;
+
+  /* ===== LIQUID GLASS TOKENS ===== */
+  --liquid-glass-bg: rgba(0, 0, 0, 0.2);
+  --liquid-glass-bg-light: rgba(255, 255, 255, 0.025);
+  --liquid-glass-border: rgba(255, 255, 255, 0.5);
+  --liquid-glass-border-subtle: rgba(255, 255, 255, 0.3);
+  --liquid-glass-shadow:
+    inset 0 1px 0px rgba(255, 255, 255, 0.75),
+    0 0 9px rgba(0, 0, 0, 0.2),
+    0 3px 8px rgba(0, 0, 0, 0.15);
+  --liquid-glass-highlight-from: rgba(255, 255, 255, 0.6);
+  --liquid-glass-highlight-to: rgba(255, 255, 255, 0.3);
+
+  /* Legacy tokens (for backwards compatibility) */
+  --glass-bg: rgba(39, 39, 42, 0.6);
+  --glass-border: rgba(63, 63, 70, 0.5);
+  --glass-blur: 20px;
+  --accent-orange: #fb923c;
+  --accent-glow: rgba(59, 130, 246, 0.3);
+  --dot-color: rgba(161, 161, 170, 0.15);
+  --dot-size: 20px;
+}
+
+/* ===== BASE STYLES ===== */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #3f3f46;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #52525b;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ===== APPLE LIQUID GLASS UTILITY CLASSES ===== */
+@layer utilities {
+
+  /* ===== LIQUID GLASS - Main Container ===== */
+  .liquid-glass {
+    position: relative;
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow);
+    overflow: hidden;
+  }
+
+  /* Top-left light gradient overlay */
+  .liquid-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to bottom right,
+        var(--liquid-glass-highlight-from),
+        transparent 50%,
+        transparent);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  /* Bottom-right subtle gradient overlay */
+  .liquid-glass::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to top left,
+        var(--liquid-glass-highlight-to),
+        transparent 50%,
+        transparent);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* ===== LIQUID GLASS - Button Variant ===== */
+  .liquid-glass-button {
+    position: relative;
+    background: var(--liquid-glass-bg-light);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow);
+    transition: all 0.3s ease;
+  }
+
+  .liquid-glass-button::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to bottom right,
+        var(--liquid-glass-highlight-from),
+        transparent 50%,
+        transparent);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  .liquid-glass-button::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to top left,
+        var(--liquid-glass-highlight-to),
+        transparent 50%,
+        transparent);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .liquid-glass-button:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  /* ===== LIQUID GLASS - Input Variant ===== */
+  .liquid-glass-input {
+    position: relative;
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow);
+    transition: all 0.3s ease;
+  }
+
+  .liquid-glass-input::placeholder {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .liquid-glass-input:focus {
+    background: rgba(255, 255, 255, 0.15);
+    outline: none;
+    box-shadow:
+      var(--liquid-glass-shadow),
+      0 0 0 2px rgba(255, 255, 255, 0.3);
+  }
+
+  /* ===== LIQUID GLASS - Card Variant ===== */
+  /* 메인 콘텐츠 영역에 사용 - 그라데이션 없음 (가독성 우선) */
+  .liquid-glass-card {
+    position: relative;
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow);
+    transition: all 0.3s ease;
+    overflow: hidden;
+  }
+
+  /* 그라데이션 오버레이 제거됨 - 탭 콘텐츠 가독성 향상 */
+
+  /* ===== LIQUID GLASS - Subtle Variant ===== */
+  .liquid-glass-subtle {
+    position: relative;
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--liquid-glass-border-subtle);
+    box-shadow:
+      inset 0 1px 0px rgba(255, 255, 255, 0.5),
+      0 0 6px rgba(0, 0, 0, 0.15),
+      0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  /* ===== LIQUID GLASS - Pill (Rounded Full) ===== */
+  .liquid-glass-pill {
+    position: relative;
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--liquid-glass-border);
+    border-radius: 9999px;
+    box-shadow: var(--liquid-glass-shadow);
+    transition: all 0.3s ease;
+  }
+
+  .liquid-glass-pill::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to bottom right,
+        var(--liquid-glass-highlight-from),
+        transparent 50%,
+        transparent);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  .liquid-glass-pill::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to top left,
+        var(--liquid-glass-highlight-to),
+        transparent 50%,
+        transparent);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* ===== LIQUID GLASS - Toolbar ===== */
+  .liquid-glass-toolbar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--liquid-glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow);
+    padding: 0.5rem;
+    overflow: hidden;
+  }
+
+  .liquid-glass-toolbar::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to bottom right,
+        var(--liquid-glass-highlight-from),
+        transparent 50%,
+        transparent);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  .liquid-glass-toolbar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(to top left,
+        var(--liquid-glass-highlight-to),
+        transparent 50%,
+        transparent);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* ===== LIQUID GLASS CONTENT (z-index helper) ===== */
+  .liquid-glass-content {
+    position: relative;
+    z-index: 10;
+  }
+
+  /* ===== LEGACY GLASS (backwards compatibility) ===== */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+  }
+
+  .glass-hover {
+    transition: border-color 0.2s ease;
+  }
+
+  .glass-hover:hover {
+    border-color: rgba(113, 113, 122, 0.5);
+  }
+
+  /* ===== DOT GRID BACKGROUND ===== */
+  .dot-grid {
+    background-image: radial-gradient(circle,
+        var(--dot-color) 1px,
+        transparent 1px);
+    background-size: var(--dot-size) var(--dot-size);
+  }
+
+  /* ===== GLOW EFFECTS ===== */
+  .glow-blue {
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+
+  .glow-orange {
+    box-shadow: 0 0 20px rgba(251, 146, 60, 0.3);
+  }
+
+  /* ===== TEXT UTILITIES ===== */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* ===== SELECTION BOX (Canvas) ===== */
+  .selection-box {
+    border: 2px solid var(--accent);
+    background: rgba(59, 130, 246, 0.1);
+  }
+
+  /* ===== RESIZE HANDLE ===== */
+  .resize-handle {
+    cursor: col-resize;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .resize-handle:hover,
+  .resize-handle:active {
+    background: var(--accent);
+  }
+
+  /* ===== TAB INDICATOR ===== */
+  .tab-indicator {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--foreground);
+  }
+
+  /* ===== FLOATING TOOLBAR ===== */
+  .floating-toolbar {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+  }
+}
+
+/* ===== ANIMATIONS ===== */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-pulse-subtle {
+    animation: pulseSu 2s infinite;
+  }
+
+  .animate-shimmer {
+    animation: shimmer 2s linear infinite;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseSu {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ===== MONACO EDITOR OVERRIDES ===== */
+.monaco-editor {
+  --vscode-editor-background: #18181b !important;
+  --vscode-editorGutter-background: #18181b !important;
+}
+
+/* ===== XTERM OVERRIDES ===== */
+.xterm {
+  padding: 8px;
+}
+
+.xterm-viewport {
+  background: #18181b !important;
 }
