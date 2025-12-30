@@ -20,6 +20,7 @@ export function useWebContainer() {
         startDevServer,
         writeFile,
         deleteFile,
+        runCommand,
         appendTerminalOutput,
         reset
     } = useWebContainerStore();
@@ -45,11 +46,12 @@ export function useWebContainer() {
             // 1. WebContainer 부트
             await boot();
 
-            // 2. 파일 시스템에 파일이 없으면 기본 템플릿 설정
+            // 2. 파일 시스템에 파일이 없으면 Vite + React 템플릿으로 초기화
             let currentFiles = useFileSystemStore.getState().files;
             if (currentFiles.length === 0) {
                 setFiles(defaultFileNodes);
                 currentFiles = defaultFileNodes;
+                appendTerminalOutput('[Vibric] React 템플릿 로드됨\n');
             }
 
             // 3. 페이지 스토어를 파일 시스템과 동기화
@@ -61,7 +63,12 @@ export function useWebContainer() {
             appendTerminalOutput('[Vibric] 파일 마운트 완료\n');
 
             // 5. Dev server 시작
-            await startDevServer();
+            if (currentFiles.length > 0) {
+                await startDevServer();
+            } else {
+                appendTerminalOutput('[Vibric] 빈 프로젝트입니다. 파일이 생성되면 서버가 시작됩니다.\n');
+                // 상태를 ready로 유지 (startDevServer가 호출되지 않았으므로)
+            }
 
             setBooted(true);
             appendTerminalOutput('[Vibric] 초기화 완료!\n');
@@ -75,14 +82,19 @@ export function useWebContainer() {
 
     // 파일 변경 시 WebContainer에 동기화
     const syncFile = useCallback(async (path: string, content: string) => {
-        if (!instance || status !== 'running') {
-            console.warn('[useWebContainer] Cannot sync file - not running');
+        if (!instance) {
+            console.warn('[useWebContainer] Cannot sync file - instance not ready');
             return;
         }
 
         try {
             await writeFile(path, content);
             appendTerminalOutput(`[Vibric] 파일 업데이트: ${path}\n`);
+
+            // 만약 서버가 실행 중이 아니고, index.html이 추가되었다면 서버 시작 시도
+            if (status === 'ready' && path.endsWith('index.html')) {
+                // useEffect가 처리하도록 둠
+            }
         } catch (error) {
             console.error('[useWebContainer] Sync file failed:', error);
         }
@@ -90,8 +102,8 @@ export function useWebContainer() {
 
     // 파일 삭제 시 WebContainer에서 제거
     const removeFile = useCallback(async (path: string) => {
-        if (!instance || status !== 'running') {
-            console.warn('[useWebContainer] Cannot remove file - not running');
+        if (!instance) {
+            console.warn('[useWebContainer] Cannot remove file - instance not ready');
             return;
         }
 
@@ -101,7 +113,11 @@ export function useWebContainer() {
         } catch (error) {
             console.error('[useWebContainer] Remove file failed:', error);
         }
-    }, [instance, status, deleteFile, appendTerminalOutput]);
+    }, [instance, deleteFile, appendTerminalOutput]);
+
+    // NOTE: startDevServer는 initialize() 내에서 호출됨. 별도 useEffect 불필요.
+    // 파일이 추가되면 syncFile()로 WebContainer에 동기화되고,
+    // Vite HMR이 자동으로 변경사항을 반영함.
 
     // previewUrl이 변경되면 FileSystemStore에도 반영
     useEffect(() => {
@@ -121,6 +137,7 @@ export function useWebContainer() {
         initialize,
         syncFile,
         removeFile,
+        runCommand,
         reset,
     };
 }

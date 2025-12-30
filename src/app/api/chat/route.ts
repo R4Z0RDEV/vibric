@@ -1,6 +1,9 @@
 import { google } from '@ai-sdk/google';
 import { streamText } from 'ai';
 import { SPEC_PROMPTS, FAST_MODE_PROMPT } from '@/constants/prompts';
+import { z } from 'zod';
+import { COMPONENTS } from '@/lib/design-system/components';
+import { GLOBAL_STYLES } from '@/lib/design-system/globals';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -39,6 +42,26 @@ export async function POST(req: Request) {
             system: systemPrompt,
             messages,
             // Gemini 3.0 Pro Thinking 설정
+            tools: {
+                getComponent: {
+                    description: 'Get the HTML/CSS for a specific UI component (e.g., button, card, input). ALWAYS use this when asked to build UI to ensure consistency and design quality.',
+                    inputSchema: z.object({
+                        name: z.enum(['button', 'card', 'input', 'label', 'container']).describe('The name of the component to retrieve'),
+                    }),
+                    execute: async ({ name }) => {
+                        const component = COMPONENTS[name];
+                        if (!component) return { error: 'Component not found' };
+                        return component;
+                    },
+                },
+                getGlobalStyles: {
+                    description: 'Get the mandatory global CSS variables and reset styles. Must include this in styles.css at the beginning.',
+                    inputSchema: z.object({}),
+                    execute: async () => {
+                        return { css: GLOBAL_STYLES };
+                    },
+                }
+            },
             providerOptions: {
                 google: {
                     thinkingLevel: 'high', // 'low' | 'high' - high enables deep reasoning

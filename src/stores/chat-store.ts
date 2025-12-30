@@ -3,9 +3,16 @@ import type { Message } from '@/types';
 import type { ThinkingStep, ActionItem } from '@/lib/streaming-parser';
 
 // 타입 정의
-export type ChatInputMode = 'spec' | 'fast';
+export type ChatInputMode = 'multi' | 'fast';
 export type SelectedModel = 'gemini' | 'claude' | 'gpt-4';
-export type SpecStage = 'idle' | 'requirements' | 'plan' | 'task';
+
+// Multi 모드 에이전트 확인 요청
+export interface AgentConfirmation {
+    agent: string;           // 호출 예정 에이전트
+    instruction: string;     // 수행할 작업 설명
+    targetFiles?: string[];  // 영향받는 파일들
+    alternatives?: string[]; // 대안 에이전트 목록
+}
 
 export interface TaskPhase {
     title: string;
@@ -28,9 +35,13 @@ interface ChatState {
     inputMode: ChatInputMode;
     selectedModel: SelectedModel;
 
-    // Spec Mode States
-    specStage: SpecStage;
+    // Multi Mode States
+    multiConnected: boolean;
+    pendingAgentConfirmation: AgentConfirmation | null;
     taskPhases: TaskPhase[];
+
+    // Auto-send trigger (외부에서 자동 전송 트리거)
+    pendingAutoSend: string | null;
 
     // Streaming Response State (Thinking UI용)
     currentResponse: StreamingResponseState;
@@ -46,8 +57,11 @@ interface ChatState {
     setInputValue: (value: string) => void;
     setInputMode: (mode: ChatInputMode) => void;
     setSelectedModel: (model: SelectedModel) => void;
-    setSpecStage: (stage: SpecStage) => void;
+    setMultiConnected: (connected: boolean) => void;
+    setPendingAgentConfirmation: (confirmation: AgentConfirmation | null) => void;
+    confirmAgent: (confirm: boolean, alternativeAgent?: string) => void;
     setTaskPhases: (phases: TaskPhase[]) => void;
+    setPendingAutoSend: (message: string | null) => void;
     clearMessages: () => void;
 
     // Streaming Response Actions
@@ -71,9 +85,13 @@ export const useChatStore = create<ChatState>((set) => ({
     inputMode: 'fast',  // 기본값: Fast 모드
     selectedModel: 'gemini',  // 기본값: Gemini
 
-    // Spec Mode States
-    specStage: 'idle',
+    // Multi Mode States
+    multiConnected: false,
+    pendingAgentConfirmation: null,
     taskPhases: [],
+
+    // Auto-send trigger
+    pendingAutoSend: null,
 
     // Streaming Response State
     currentResponse: { ...initialStreamingState },
@@ -113,8 +131,14 @@ export const useChatStore = create<ChatState>((set) => ({
 
     clearMessages: () => set({ messages: [] }),
 
-    setSpecStage: (stage) => set({ specStage: stage }),
+    setMultiConnected: (connected) => set({ multiConnected: connected }),
+    setPendingAgentConfirmation: (confirmation) => set({ pendingAgentConfirmation: confirmation }),
+    confirmAgent: (confirm, alternativeAgent) => {
+        // WebSocket으로 확인 응답 전송 (후속 구현)
+        set({ pendingAgentConfirmation: null });
+    },
     setTaskPhases: (phases) => set({ taskPhases: phases }),
+    setPendingAutoSend: (message) => set({ pendingAutoSend: message }),
 
     // Streaming Response Actions
     startStreaming: () => set({
@@ -136,6 +160,7 @@ export const useChatStore = create<ChatState>((set) => ({
         currentResponse: {
             ...state.currentResponse,
             isStreaming: false,
+            thinkingStartTime: null, // 리셋하여 이전 세션 시간 방지
         },
     })),
 }));

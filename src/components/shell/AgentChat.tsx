@@ -5,12 +5,12 @@ import { Sparkles, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useChatStore } from '@/stores/chat-store';
 import { useFileSystemStore } from '@/stores/filesystem-store';
+import { usePageStore } from '@/stores/page-store';
 import { ChatInput } from '@/components/chat/ChatInput';
-import { SpecWorkflowIndicator } from '@/components/chat/SpecWorkflowIndicator';
-import { TaskChecklistPanel } from '@/components/chat/TaskChecklistPanel';
 import { ThinkingBlock } from '@/components/chat/ThinkingBlock';
 import { ActionLogList } from '@/components/chat/ActionLogList';
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer';
+import { AgentConfirmation } from '@/components/chat/AgentConfirmation';
 import { StreamingParser } from '@/lib/streaming-parser';
 import { addFileToTree, removeFileFromTree } from '@/lib/webcontainer-templates';
 import { useWebContainer } from '@/hooks/useWebContainer';
@@ -37,12 +37,42 @@ function MessageBubble({ message, isLastMessage }: MessageBubbleProps) {
         ? currentResponse.actions
         : (message.actions ?? []);
 
-    // 경과 시간: 스트리밍 중이면 실시간 계산, 완료되면 저장된 값 사용
-    const elapsedSeconds = isCurrentlyStreaming
-        ? (currentResponse.thinkingStartTime
-            ? Math.floor((Date.now() - currentResponse.thinkingStartTime) / 1000)
-            : 0)
-        : (message.thinkingDuration ?? 0);
+    // 실시간 타이머: 스트리밍 중에는 1초마다 업데이트
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const [finalElapsedSeconds, setFinalElapsedSeconds] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (isCurrentlyStreaming && currentResponse.thinkingStartTime) {
+            // 스트리밍 시작: 최종값 리셋
+            setFinalElapsedSeconds(null);
+
+            // 1초마다 타이머 업데이트
+            const interval = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - currentResponse.thinkingStartTime!) / 1000);
+                setElapsedSeconds(elapsed);
+            }, 1000);
+
+            // 초기값 설정
+            setElapsedSeconds(Math.floor((Date.now() - currentResponse.thinkingStartTime) / 1000));
+
+            return () => {
+                // cleanup 시 최종값 캡처
+                const final = Math.floor((Date.now() - currentResponse.thinkingStartTime!) / 1000);
+                setFinalElapsedSeconds(final);
+                clearInterval(interval);
+            };
+        }
+    }, [isCurrentlyStreaming, currentResponse.thinkingStartTime]);
+
+    // 저장된 thinkingDuration이 있으면 사용 (이전 메시지들)
+    useEffect(() => {
+        if (!isCurrentlyStreaming && message.thinkingDuration && message.thinkingDuration > 0) {
+            setElapsedSeconds(message.thinkingDuration);
+        }
+    }, [isCurrentlyStreaming, message.thinkingDuration]);
+
+    // 실제 표시할 시간
+    const displaySeconds = finalElapsedSeconds ?? elapsedSeconds;
 
     // 디버그 로그 (개발 중)
     if (!isUser && isLastMessage) {
@@ -76,6 +106,9 @@ function MessageBubble({ message, isLastMessage }: MessageBubbleProps) {
     // Thinking UI 표시 여부: AI 메시지이고 thinking/actions 데이터가 있으면 표시
     const showThinkingUI = !isUser && (thinkingData.length > 0 || actionsData.length > 0);
 
+    // Spec 모드에서 스트리밍 중일 때 간단한 타이머 표시
+    const showSpecStreamingIndicator = !isUser && isCurrentlyStreaming && thinkingData.length === 0 && actionsData.length === 0;
+
     return (
         <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
             {/* Avatar */}
@@ -96,11 +129,20 @@ function MessageBubble({ message, isLastMessage }: MessageBubbleProps) {
 
             {/* Message Content - min-w-0은 flex에서 축소 허용 */}
             <div className={`flex-1 min-w-0 max-w-[85%] overflow-hidden ${isUser ? 'text-right' : ''}`}>
+                {/* Spec 모드 스트리밍 인디케이터 - XML 파싱 없이도 타이머 표시 */}
+                {showSpecStreamingIndicator && (
+                    <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-white/5 text-white/70 text-sm">
+                        <Loader2 size={14} className="animate-spin text-purple-400" />
+                        <span>응답 생성 중...</span>
+                        <span className="text-white/50">({displaySeconds}s)</span>
+                    </div>
+                )}
+
                 {/* Thinking Block - AI 메시지에서 thinking 데이터가 있으면 표시 */}
                 {showThinkingUI && thinkingData.length > 0 && (
                     <ThinkingBlock
                         steps={thinkingData}
-                        elapsedSeconds={elapsedSeconds}
+                        elapsedSeconds={displaySeconds}
                         isStreaming={isCurrentlyStreaming}
                     />
                 )}
@@ -159,8 +201,8 @@ export function AgentChat() {
         addMessage,
         updateMessage,
         inputMode,
-        specStage,
-        setSpecStage,
+        multiConnected,
+        setMultiConnected,
         selectedModel,
         isLoading,
         setLoading,
@@ -168,35 +210,50 @@ export function AgentChat() {
         updateStreamingResponse,
         endStreaming,
         currentResponse,
+        pendingAutoSend,
+        setPendingAutoSend,
     } = useChatStore();
-    const scrollRef = useRef<HTMLDivElement>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const scrollAreaRef = useRef<HTMLDivElement>(null);
     const parserRef = useRef<StreamingParser>(new StreamingParser());
 
-    // WebContainer 연동 - 파일 생성/수정/삭제용 (초기화는 Canvas/PagePreview에서 담당)
-    const { syncFile, removeFile, status: webContainerStatus } = useWebContainer();
+    // WebContainer 연동 - 파일 생성/수정/삭제/명령 실행
+    const { syncFile, removeFile, runCommand, status: webContainerStatus } = useWebContainer();
 
-    // Auto-scroll to bottom when new messages arrive
+    // 스크롤을 맨 아래로 이동하는 함수
+    const scrollToBottom = () => {
+        // Radix ScrollArea의 Viewport 찾기
+        const viewport = scrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]');
+        if (viewport) {
+            viewport.scrollTop = viewport.scrollHeight;
+        }
+    };
+
+    // Auto-scroll to bottom when new messages arrive or streaming updates
     useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [messages, currentResponse]);
+        // requestAnimationFrame으로 렌더링 완료 후 스크롤
+        requestAnimationFrame(() => {
+            scrollToBottom();
+        });
+    }, [messages.length, currentResponse.message]);
 
-    // Spec 모드 상태 전이 처리
-    const handleSpecModeTransition = (content: string) => {
-        if (inputMode !== 'spec') return;
-
-        if (specStage === 'idle') {
-            setSpecStage('requirements');
-        } else if (specStage === 'requirements') {
-            if (content.match(/좋아|진행|네|yes|okay|proceed/i)) {
-                setSpecStage('plan');
-            }
-        } else if (specStage === 'plan') {
-            if (content.match(/시작|start|go|begin/i)) {
-                setSpecStage('task');
-            }
+    // Auto-send Trigger
+    useEffect(() => {
+        if (pendingAutoSend && !isLoading) {
+            console.log('[AgentChat] Auto-sending message:', pendingAutoSend);
+            // 메시지 전송
+            handleSubmit(pendingAutoSend);
+            // 상태 초기화
+            setPendingAutoSend(null);
         }
+    }, [pendingAutoSend, isLoading]);
+
+    // Multi 모드 상태 전이 처리 (간소화)
+    const handleMultiModeTransition = (content: string) => {
+        // Multi 모드에서는 WebSocket을 통해 백엔드에서 처리
+        // 프론트엔드에서는 단순히 로깅만
+        if (inputMode !== 'multi') return;
+        console.log('[Multi Mode] User input:', content.substring(0, 50));
     };
 
     // 메시지 전송 핸들러 - 실제 AI API 호출 + XML 파싱
@@ -207,8 +264,8 @@ export function AgentChat() {
             content,
         });
 
-        // 2. Spec 모드 상태 전이 처리
-        handleSpecModeTransition(content);
+        // 2. Multi 모드 상태 처리
+        handleMultiModeTransition(content);
 
         // 3. AI 응답 메시지 생성 (스트리밍용)
         addMessage({
@@ -233,7 +290,7 @@ export function AgentChat() {
                         { role: 'user', content }
                     ],
                     mode: inputMode,
-                    specStage: useChatStore.getState().specStage,
+                    multiConnected: useChatStore.getState().multiConnected,
                     model: selectedModel,
                 }),
             });
@@ -242,9 +299,12 @@ export function AgentChat() {
                 throw new Error(`API Error: ${response.status}`);
             }
 
-            // 6. 스트리밍 응답 처리 + XML 파싱
+            // 6. 스트리밍 응답 처리
             const reader = response.body?.getReader();
             const decoder = new TextDecoder();
+            let rawText = ''; // Spec 모드용 원본 텍스트
+            let lastUpdateTime = 0;
+            const THROTTLE_MS = 50; // 50ms throttle로 렉 방지
 
             if (reader) {
                 while (true) {
@@ -252,22 +312,60 @@ export function AgentChat() {
                     if (done) break;
 
                     const chunk = decoder.decode(value, { stream: true });
+                    rawText += chunk; // 원본 텍스트 누적
 
-                    // XML 파싱
-                    const parsed = parserRef.current.addChunk(chunk);
+                    // XML 파싱 모드에서는 항상 parser에 chunk 추가 (데이터 손실 방지)
+                    // 현재 multiConnected 읽기 (클로저 캡처 방지)
+                    const currentSpecStage = useChatStore.getState().multiConnected;
 
-                    // 스트리밍 상태 업데이트
+                    // 모든 모드에서 XML 파싱 수행 (새 프롬프트는 항상 XML 형식)
+                    parserRef.current.addChunk(chunk);
+
+                    // Throttle: UI 업데이트만 제어 (데이터 파싱은 계속 진행)
+                    const now = Date.now();
+                    if (now - lastUpdateTime < THROTTLE_MS) continue;
+                    lastUpdateTime = now;
+
+                    // 파싱 결과로 UI 업데이트
+                    const parsed = parserRef.current.getState();
+
+                    if (inputMode === 'fast' || (inputMode === 'multi' && currentSpecStage)) {
+                        // Fast 모드 또는 Spec task 단계: Thinking/Actions 포함
+                        updateStreamingResponse({
+                            thinking: parsed.thinking,
+                            actions: parsed.actions,
+                            message: parsed.message,
+                        });
+                    } else {
+                        // Spec requirements/plan 단계: message만 표시 (XML 파싱된 결과)
+                        updateStreamingResponse({
+                            thinking: [],
+                            actions: [],
+                            message: parsed.message || rawText, // 파싱 실패 시 fallback
+                        });
+                    }
+                }
+
+                // 마지막 청크 업데이트 보장
+                const finalParsedState = parserRef.current.getState();
+                const finalSpecStage = useChatStore.getState().multiConnected;
+
+                if (inputMode === 'fast' || (inputMode === 'multi' && finalSpecStage)) {
                     updateStreamingResponse({
-                        thinking: parsed.thinking,
-                        actions: parsed.actions,
-                        message: parsed.message,
+                        thinking: finalParsedState.thinking,
+                        actions: finalParsedState.actions,
+                        message: finalParsedState.message,
+                    });
+                } else {
+                    updateStreamingResponse({
+                        thinking: [],
+                        actions: [],
+                        message: finalParsedState.message || rawText,
                     });
                 }
             }
 
-            // 7. 스트리밍 완료
-            endStreaming();
-
+            // 7. 최종 메시지 처리 및 액션 실행
             const lastMessage = useChatStore.getState().messages.at(-1);
             if (lastMessage) {
                 const finalParsed = parserRef.current.getState();
@@ -278,55 +376,160 @@ export function AgentChat() {
                     ? Math.floor((Date.now() - currentResponse.thinkingStartTime) / 1000)
                     : 0;
 
-                // 최종 메시지 - 파싱된 message 또는 에러
-                const finalContent = finalParsed.message || '응답을 파싱하지 못했습니다.';
+                // 최종 메시지 결정 (모드에 따라 다름)
+                let finalContent: string;
+                // 최종 메시지 결정 (실시간 multiConnected 확인)
+                const messageSpecStage = useChatStore.getState().multiConnected;
+                console.log('[DEBUG] messageSpecStage:', messageSpecStage, 'inputMode:', inputMode);
 
-                // 8. AI Actions 실행 - 파일 생성/수정
+                if (inputMode === 'fast' || (inputMode === 'multi' && messageSpecStage)) {
+                    // Fast 모드 또는 Spec task 단계: XML 파싱 결과 사용
+                    finalContent = finalParsed.message || '응답을 파싱하지 못했습니다.';
+                    console.log('[DEBUG] XML Parse Mode - finalParsed.message:', finalParsed.message?.substring(0, 200));
+                    console.log('[DEBUG] XML Parse Mode - finalParsed.actions:', finalParsed.actions.length);
+                } else {
+                    // Spec requirements/plan 단계: 파싱된 message 사용 (fallback: rawText)
+                    finalContent = finalParsed.message || rawText.trim() || '응답을 받지 못했습니다.';
+                    console.log('[DEBUG] Multi Mode - finalParsed.message:', finalParsed.message?.substring(0, 200));
+                }
+                console.log('[DEBUG] Final Content to save:', finalContent.substring(0, 200));
+
+                // 7.5. (삭제됨 - spec-store 제거됨)
+
+                // 8. AI Actions 실행 - 모든 액션 타입 지원
                 // filesystem-store에 먼저 추가 (FileTree에 즉시 표시)
                 let currentFiles = useFileSystemStore.getState().files;
                 const { setFiles } = useFileSystemStore.getState();
 
                 for (const action of finalParsed.actions) {
-                    if ((action.type === 'create_file' || action.type === 'modify_file') && action.path && action.content) {
-                        try {
-                            // 1. filesystem-store 업데이트 (addFileToTree로 중첩 구조 지원)
-                            currentFiles = addFileToTree(currentFiles, action.path, action.content);
-                            setFiles(currentFiles);
-                            console.log(`[AgentChat] FileSystem에 파일 추가/업데이트: ${action.path}`);
+                    try {
+                        switch (action.type) {
+                            case 'create_file':
+                            case 'modify_file':
+                                if (action.path && action.content) {
+                                    // 1. WebContainer에 먼저 파일 동기화 (서버 시작 race condition 방지)
+                                    if (webContainerStatus === 'running' || webContainerStatus === 'ready') {
+                                        await syncFile(action.path, action.content);
+                                        console.log(`[AgentChat] WebContainer에 파일 동기화: ${action.path}`);
+                                    }
 
-                            // 2. WebContainer에도 동기화 (running 상태일 때만)
-                            if (webContainerStatus === 'running') {
-                                await syncFile(action.path, action.content);
-                                console.log(`[AgentChat] WebContainer에 파일 동기화: ${action.path}`);
-                            }
+                                    // 2. 그 다음 Store 업데이트 (UI 반영 & 서버 시작 트리거)
+                                    currentFiles = addFileToTree(currentFiles, action.path, action.content);
+                                    setFiles(currentFiles);
+                                    console.log(`[AgentChat] FileSystem에 파일 추가/업데이트: ${action.path}`);
+                                    action.status = 'completed';
+                                }
+                                break;
 
-                            action.status = 'completed';
-                        } catch (err) {
-                            action.status = 'error';
-                            console.error(`[AgentChat] 파일 생성 실패: ${action.path}`, err);
+                            case 'delete_file':
+                                if (action.path) {
+                                    currentFiles = removeFileFromTree(currentFiles, action.path);
+                                    setFiles(currentFiles);
+                                    console.log(`[AgentChat] FileSystem에서 파일 삭제: ${action.path}`);
+
+                                    if (webContainerStatus === 'running' || webContainerStatus === 'ready') {
+                                        await removeFile(action.path);
+                                        console.log(`[AgentChat] WebContainer에서 파일 삭제: ${action.path}`);
+                                    }
+                                    action.status = 'completed';
+                                }
+                                break;
+
+                            case 'run_command':
+                                if (action.command && webContainerStatus === 'running') {
+                                    const commandParts = action.command.split(' ');
+                                    console.log(`[AgentChat] 커맨드 실행: ${action.command}`);
+                                    const result = await runCommand(commandParts);
+                                    if (result.exitCode === 0) {
+                                        console.log(`[AgentChat] 커맨드 완료:`, result.output);
+                                        action.status = 'completed';
+                                    } else {
+                                        console.error(`[AgentChat] 커맨드 실패 (exit ${result.exitCode}):`, result.output);
+                                        action.status = 'error';
+                                    }
+                                } else {
+                                    console.warn('[AgentChat] WebContainer not running or no command');
+                                    action.status = 'error';
+                                }
+                                break;
+
+                            case 'read_file':
+                            case 'list_files':
+                            case 'analyze_code':
+                                // 분석 액션은 로그만 기록 (결과는 AI에게 전달 필요)
+                                console.log(`[AgentChat] 분석 액션: ${action.type}`, action.path);
+                                action.status = 'completed';
+                                break;
+
+                            case 'get_logs':
+                            case 'get_errors':
+                                // 디버깅 액션
+                                console.log(`[AgentChat] 디버깅 액션: ${action.type}`);
+                                action.status = 'completed';
+                                break;
+
+                            case 'refresh_preview':
+                            case 'navigate_to':
+                                // 브라우저 액션
+                                console.log(`[AgentChat] 브라우저 액션: ${action.type}`, action.url);
+                                action.status = 'completed';
+                                break;
+
+                            case 'web_search':
+                                // 웹 검색 액션
+                                console.log(`[AgentChat] 웹 검색: ${action.query}`);
+                                action.status = 'completed';
+                                break;
+
+                            case 'git_checkpoint':
+                                // Git 체크포인트 생성
+                                if (webContainerStatus === 'running') {
+                                    const message = action.message || `Checkpoint at ${new Date().toISOString()}`;
+                                    console.log(`[AgentChat] Git 체크포인트: ${message}`);
+                                    // git add . && git commit -m "message"
+                                    await runCommand(['git', 'add', '.']);
+                                    await runCommand(['git', 'commit', '-m', message]);
+                                    action.status = 'completed';
+                                } else {
+                                    action.status = 'error';
+                                }
+                                break;
+
+                            case 'git_revert':
+                                // Git 롤백
+                                if (webContainerStatus === 'running') {
+                                    const steps = action.steps || 1;
+                                    console.log(`[AgentChat] Git 롤백: ${steps} step(s)`);
+                                    await runCommand(['git', 'reset', '--hard', `HEAD~${steps}`]);
+                                    action.status = 'completed';
+                                } else {
+                                    action.status = 'error';
+                                }
+                                break;
+
+                            case 'git_status':
+                            case 'git_diff':
+                                // Git 상태 확인 (읽기 전용)
+                                console.log(`[AgentChat] Git ${action.type}`);
+                                action.status = 'completed';
+                                break;
+
+                            default:
+                                console.warn(`[AgentChat] 알 수 없는 액션 타입: ${action.type}`);
+                                break;
                         }
-                    } else if (action.type === 'delete_file' && action.path) {
-                        try {
-                            // 1. filesystem-store에서 삭제
-                            currentFiles = removeFileFromTree(currentFiles, action.path);
-                            setFiles(currentFiles);
-                            console.log(`[AgentChat] FileSystem에서 파일 삭제: ${action.path}`);
-
-                            // 2. WebContainer에서도 삭제 (running 상태일 때만)
-                            if (webContainerStatus === 'running') {
-                                await removeFile(action.path);
-                                console.log(`[AgentChat] WebContainer에서 파일 삭제: ${action.path}`);
-                            }
-
-                            action.status = 'completed';
-                        } catch (err) {
-                            action.status = 'error';
-                            console.error(`[AgentChat] 파일 삭제 실패: ${action.path}`, err);
-                        }
+                    } catch (err) {
+                        action.status = 'error';
+                        console.error(`[AgentChat] 액션 실행 실패: ${action.type}`, err);
                     }
                 }
 
-                // thinking/actions를 메시지에 영구 저장
+                // 8.5. 파일 변경 후 페이지 목록 자동 동기화
+                const updatedFiles = useFileSystemStore.getState().files;
+                usePageStore.getState().syncFromFileSystem(updatedFiles);
+                console.log('[AgentChat] 페이지 목록 동기화 완료');
+
+                // 9. thinking/actions를 메시지에 영구 저장 (endStreaming 전에!)
                 updateMessage(lastMessage.id, finalContent, {
                     thinking: finalParsed.thinking.map(step => ({
                         title: step.title,
@@ -337,11 +540,17 @@ export function AgentChat() {
                         path: action.path,
                         lines: action.lines,
                         content: action.content,
+                        command: action.command,
+                        query: action.query,
+                        url: action.url,
                         status: action.status,
                     })),
                     thinkingDuration,
                 });
             }
+
+            // 10. 스트리밍 완료 (메시지 업데이트 후!)
+            endStreaming();
 
         } catch (error) {
             console.error('AI API 호출 실패:', error);
@@ -368,12 +577,12 @@ export function AgentChat() {
                     {/* Mode Badge */}
                     <span className={`
                         px-2 py-0.5 rounded-full text-xs font-medium
-                        ${inputMode === 'spec'
+                        ${inputMode === 'multi'
                             ? 'bg-purple-500/20 text-purple-300'
                             : 'bg-blue-500/20 text-blue-300'
                         }
                     `}>
-                        {inputMode === 'spec' ? 'Spec Mode' : 'Fast Mode'}
+                        {inputMode === 'multi' ? 'Multi Mode' : 'Fast Mode'}
                     </span>
                     {isLoading && (
                         <Loader2 className="w-4 h-4 text-white/50 animate-spin" />
@@ -384,14 +593,11 @@ export function AgentChat() {
                 </span>
             </div>
 
-            {/* Spec Workflow Indicator */}
-            <SpecWorkflowIndicator />
-
-            {/* Task Checklist (Only in Task Stage) */}
-            <TaskChecklistPanel />
+            {/* Multi Mode - 에이전트 확인 UI */}
+            <AgentConfirmation />
 
             {/* Messages - min-h-0 ensures flex-1 respects container height */}
-            <ScrollArea className="flex-1 min-h-0 p-4" ref={scrollRef}>
+            <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 p-4">
                 <div className="space-y-4">
                     {messages.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-[300px] text-center">
@@ -399,13 +605,13 @@ export function AgentChat() {
                                 <Sparkles className="w-8 h-8 text-white relative z-10" />
                             </div>
                             <h3 className="font-medium text-white mb-2">
-                                {inputMode === 'spec'
+                                {inputMode === 'multi'
                                     ? 'What do you want to build?'
                                     : '무엇을 만들어 드릴까요?'
                                 }
                             </h3>
                             <p className="text-sm text-white/60 max-w-[250px]">
-                                {inputMode === 'spec'
+                                {inputMode === 'multi'
                                     ? 'Describe your project and I\'ll help you plan it step by step.'
                                     : '원하는 웹 페이지나 기능을 설명해주세요. AI가 코드를 생성해 드립니다.'
                                 }
@@ -420,6 +626,8 @@ export function AgentChat() {
                             />
                         ))
                     )}
+                    {/* Auto-scroll anchor */}
+                    <div ref={messagesEndRef} />
                 </div>
             </ScrollArea>
 

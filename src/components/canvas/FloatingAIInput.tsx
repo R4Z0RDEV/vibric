@@ -28,7 +28,7 @@ export function FloatingAIInput({ containerRef, selectedElement }: FloatingAIInp
         setAIProcessing(true);
 
         // 1. 사용자 메시지 추가 (ChatStore)
-        const contextPrefix = `[Context: ${selectedElement.name}] `;
+        const contextPrefix = `[Context: ${selectedElement.tagName}] `;
         const userContent = contextPrefix + input.trim();
         addMessage({
             role: 'user',

@@ -1,0 +1,9 @@
+{
+    "dependencies": [
+        "."
+    ],
+    "graphs": {
+        "vibric_agent": "./agents/graph.py:app_graph"
+    },
+    "env": ".env"
+}

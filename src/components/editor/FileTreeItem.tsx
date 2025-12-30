@@ -5,6 +5,80 @@ import { useFileSystemStore } from '@/stores/filesystem-store';
 import { ChevronRight, File, Folder, FolderOpen, Trash2, FilePlus, FolderPlus } from 'lucide-react';
 import type { FileNode } from '@/types';
 
+// react-icons - Devicons, Simple Icons, VS Code Icons
+import {
+    SiTypescript,
+    SiJavascript,
+    SiReact,
+    SiHtml5,
+    SiCss3,
+    SiJson,
+    SiMarkdown,
+    SiYaml,
+    SiNodedotjs,
+    SiGit,
+    SiNpm,
+    SiPython,
+    SiDocker,
+} from 'react-icons/si';
+import { VscFile, VscSettingsGear, VscLock } from 'react-icons/vsc';
+
+// 파일 확장자 → 아이콘 매핑
+function getFileIconByExtension(fileName: string): React.ReactNode {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    const name = fileName.toLowerCase();
+
+    // 특수 파일명 체크
+    if (name === 'package.json') return <SiNpm size={14} className="text-red-400" />;
+    if (name === 'package-lock.json') return <SiNpm size={14} className="text-red-300" />;
+    if (name === 'tsconfig.json') return <SiTypescript size={14} className="text-blue-400" />;
+    if (name === '.gitignore' || name === '.git') return <SiGit size={14} className="text-orange-400" />;
+    if (name === 'dockerfile') return <SiDocker size={14} className="text-blue-500" />;
+    if (name === '.env' || name.startsWith('.env.')) return <VscLock size={14} className="text-yellow-400" />;
+    if (name.endsWith('.config.js') || name.endsWith('.config.ts')) return <VscSettingsGear size={14} className="text-zinc-400" />;
+
+    // 확장자별 아이콘
+    switch (ext) {
+        // TypeScript
+        case 'ts':
+            return <SiTypescript size={14} className="text-blue-400" />;
+        case 'tsx':
+            return <SiReact size={14} className="text-cyan-400" />;
+        // JavaScript
+        case 'js':
+            return <SiJavascript size={14} className="text-yellow-400" />;
+        case 'jsx':
+            return <SiReact size={14} className="text-cyan-400" />;
+        case 'mjs':
+        case 'cjs':
+            return <SiNodedotjs size={14} className="text-green-500" />;
+        // Web
+        case 'html':
+            return <SiHtml5 size={14} className="text-orange-500" />;
+        case 'css':
+            return <SiCss3 size={14} className="text-blue-500" />;
+        case 'scss':
+        case 'sass':
+            return <SiCss3 size={14} className="text-pink-400" />;
+        // Data
+        case 'json':
+            return <SiJson size={14} className="text-yellow-500" />;
+        case 'yaml':
+        case 'yml':
+            return <SiYaml size={14} className="text-red-400" />;
+        // Docs
+        case 'md':
+        case 'mdx':
+            return <SiMarkdown size={14} className="text-white" />;
+        // Python
+        case 'py':
+            return <SiPython size={14} className="text-yellow-300" />;
+        // Default
+        default:
+            return <VscFile size={14} className="text-zinc-400" />;
+    }
+}
+
 interface FileTreeItemProps {
     node: FileNode;
     depth: number;
@@ -42,7 +116,7 @@ export function FileTreeItem({ node, depth }: FileTreeItemProps) {
         }
     };
 
-    // 파일 아이콘 선택
+    // 파일/폴더 아이콘 선택
     const getFileIcon = () => {
         if (isDirectory) {
             return node.isOpen ? (
@@ -51,20 +125,7 @@ export function FileTreeItem({ node, depth }: FileTreeItemProps) {
                 <Folder size={14} className="text-amber-400" />
             );
         }
-
-        const ext = node.name.split('.').pop()?.toLowerCase();
-        const iconColors: Record<string, string> = {
-            'tsx': 'text-blue-400',
-            'ts': 'text-blue-400',
-            'jsx': 'text-yellow-400',
-            'js': 'text-yellow-400',
-            'css': 'text-purple-400',
-            'json': 'text-green-400',
-            'md': 'text-zinc-400',
-            'html': 'text-orange-400',
-        };
-
-        return <File size={14} className={iconColors[ext || ''] || 'text-zinc-400'} />;
+        return getFileIconByExtension(node.name);
     };
 
     return (

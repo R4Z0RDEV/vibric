@@ -26,7 +26,12 @@ export type ActionType =
     | 'refresh_preview'
     | 'navigate_to'
     // 검색 액션 (Search)
-    | 'web_search';
+    | 'web_search'
+    // Git 액션 (Version Control)
+    | 'git_checkpoint'  // 현재 상태 저장 (자동 커밋)
+    | 'git_revert'      // 이전 체크포인트로 롤백
+    | 'git_status'      // 변경된 파일 목록
+    | 'git_diff';       // 변경 내용 확인
 
 export type ActionStatus = 'pending' | 'in_progress' | 'completed' | 'error' | 'waiting_approval';
 
@@ -133,6 +138,29 @@ export interface WebSearchAction extends BaseAction {
 }
 
 // ============================================================================
+// Git Actions (Version Control)
+// ============================================================================
+
+export interface GitCheckpointAction extends BaseAction {
+    type: 'git_checkpoint';
+    message: string;  // 체크포인트 설명
+}
+
+export interface GitRevertAction extends BaseAction {
+    type: 'git_revert';
+    steps?: number;   // 되돌릴 커밋 수 (기본 1)
+}
+
+export interface GitStatusAction extends BaseAction {
+    type: 'git_status';
+}
+
+export interface GitDiffAction extends BaseAction {
+    type: 'git_diff';
+    path?: string;    // 특정 파일만 diff (선택)
+}
+
+// ============================================================================
 // Union Type
 // ============================================================================
 
@@ -148,7 +176,11 @@ export type ActionItem =
     | GetErrorsAction
     | RefreshPreviewAction
     | NavigateToAction
-    | WebSearchAction;
+    | WebSearchAction
+    | GitCheckpointAction
+    | GitRevertAction
+    | GitStatusAction
+    | GitDiffAction;
 
 // ============================================================================
 // Action Results
@@ -233,12 +265,14 @@ export const ACTION_CATEGORIES = {
     debug: ['get_logs', 'get_errors'],
     browser: ['refresh_preview', 'navigate_to'],
     search: ['web_search'],
+    git: ['git_checkpoint', 'git_revert', 'git_status', 'git_diff'],
 } as const;
 
 // 위험도가 높은 액션 (Spec Mode에서 승인 필요)
 export const DANGEROUS_ACTIONS: ActionType[] = [
     'run_command',
     'delete_file',
+    'git_revert',  // 롤백은 위험할 수 있음
 ];
 
 // 읽기 전용 액션 (항상 자동 실행 가능)
@@ -249,4 +283,7 @@ export const READONLY_ACTIONS: ActionType[] = [
     'get_logs',
     'get_errors',
     'web_search',
+    'git_status',
+    'git_diff',
 ];
+

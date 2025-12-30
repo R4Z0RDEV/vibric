@@ -24,10 +24,10 @@ const MOCK_PHASES: TaskPhase[] = [
 ];
 
 export function TaskChecklistPanel() {
-    const { specStage, inputMode, taskPhases, setTaskPhases } = useChatStore();
+    const { multiConnected, inputMode, taskPhases, setTaskPhases } = useChatStore();
 
-    // Task 모드가 아니면 렌더링 안함
-    if (inputMode !== 'spec' || specStage !== 'task') return null;
+    // Multi 모드이고 연결되어 있을 때만 렌더링
+    if (inputMode !== 'multi' || !multiConnected) return null;
 
     // 데모용 데이터 주입 (실제로는 Store에 이미 있어야 함)
     const phases = taskPhases.length > 0 ? taskPhases : MOCK_PHASES;

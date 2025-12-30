@@ -16,6 +16,9 @@ export function PagePreview({ className = '' }: PagePreviewProps) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [showTerminal, setShowTerminal] = useState(false);
+    const [iframeLoaded, setIframeLoaded] = useState(false);
+    const [isCssReady, setIsCssReady] = useState(false);
+    const cssTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const {
         setHoveredElement,
@@ -46,8 +49,8 @@ export function PagePreview({ className = '' }: PagePreviewProps) {
         if (activePage.path === '/') {
             return previewUrl;
         }
-        // /about -> /about.html
-        return `${previewUrl}${activePage.path}.html`;
+        // React SPA: /about (no .html extension)
+        return `${previewUrl}${activePage.path}`;
     }, [previewUrl, activePageId, pages]);
 
     // Canvas 탭이 열리면 자동으로 WebContainer 시작
@@ -66,9 +69,33 @@ export function PagePreview({ className = '' }: PagePreviewProps) {
 
     // iframe 로드 완료 핸들러
     const handleIframeLoad = () => {
+        setIframeLoaded(true);
         // postMessage 리스너 설정 (추후 IframeInjector와 통신용)
         window.addEventListener('message', handleIframeMessage);
     };
+
+    // previewUrl 변경 시 로드 상태 초기화
+    useEffect(() => {
+        setIframeLoaded(false);
+        setIsCssReady(false);
+
+        // CSS 로드 타임아웃 폴백 (5초 후 강제 표시)
+        if (cssTimeoutRef.current) {
+            clearTimeout(cssTimeoutRef.current);
+        }
+        if (fullPreviewUrl) {
+            cssTimeoutRef.current = setTimeout(() => {
+                console.log('[PagePreview] CSS timeout - forcing ready state');
+                setIsCssReady(true);
+            }, 5000);
+        }
+
+        return () => {
+            if (cssTimeoutRef.current) {
+                clearTimeout(cssTimeoutRef.current);
+            }
+        };
+    }, [fullPreviewUrl]);
 
     // iframe으로부터 메시지 수신
     const handleIframeMessage = useCallback((event: MessageEvent) => {
@@ -108,6 +135,16 @@ export function PagePreview({ className = '' }: PagePreviewProps) {
             case 'element-leave':
                 setHoveredElement(null);
                 break;
+            case 'vibric-css-ready':
+                console.log('[PagePreview] CSS ready signal received');
+                setIsCssReady(true);
+                if (cssTimeoutRef.current) {
+                    clearTimeout(cssTimeoutRef.current);
+                }
+                break;
+            case 'vibric-iframe-ready':
+                console.log('[PagePreview] Iframe ready signal received');
+                break;
         }
     }, [setHoveredElement, setSelectedElement]);
 
@@ -118,8 +155,21 @@ export function PagePreview({ className = '' }: PagePreviewProps) {
         };
     }, [handleIframeMessage]);
 
+    // 선택 모드 상태를 iframe에 전달
+    useEffect(() => {
+        if (iframeRef.current?.contentWindow) {
+            iframeRef.current.contentWindow.postMessage({
+                type: 'vibric-selection-mode',
+                enabled: isSelectionModeEnabled
+            }, '*');
+        }
+    }, [isSelectionModeEnabled]);
+
     const isLoading = status === 'booting' || status === 'installing';
     const isRunning = status === 'running';
+
+    // CSS가 로드될 때까지 로딩 표시 (Vite HMR 대응)
+    const showPreviewLoading = isLoading || (isRunning && previewUrl && !isCssReady);
 
     // 상태 메시지
     const getStatusMessage = () => {
@@ -171,7 +221,13 @@ export function PagePreview({ className = '' }: PagePreviewProps) {
                         {/* 새로고침 */}
                         {previewUrl && (
                             <button
-                                onClick={() => iframeRef.current?.contentWindow?.location.reload()}
+                                onClick={() => {
+                                    if (iframeRef.current) {
+                                        // iframe src를 재할당하여 새로고침 (CORS 안전)
+                                        const currentSrc = iframeRef.current.src;
+                                        iframeRef.current.src = currentSrc;
+                                    }
+                                }}
                                 className="liquid-glass-button p-1.5 rounded-lg"
                             >
                                 <RefreshCw size={14} className="text-white/70 relative z-10" />
@@ -189,12 +245,15 @@ export function PagePreview({ className = '' }: PagePreviewProps) {
 
                 {/* 메인 컨텐츠 영역 */}
                 <div className="flex-1 relative">
-                    {/* 로딩 상태 */}
-                    {(isLoading || (isRunning && !previewUrl)) && (
+                    {/* 로딩 상태 - CSS 로드 완료까지 표시 */}
+                    {showPreviewLoading && (
                         <div className="absolute inset-0 flex items-center justify-center bg-zinc-950 z-10">
                             <div className="flex flex-col items-center gap-4">
                                 <Loader2 size={32} className="text-blue-500 animate-spin" />
                                 <p className="text-sm text-zinc-400">{getStatusMessage()}</p>
+                                {status === 'running' && !isCssReady && (
+                                    <p className="text-xs text-zinc-500">스타일 로딩 중...</p>
+                                )}
                             </div>
                         </div>
                     )}
@@ -204,7 +263,8 @@ export function PagePreview({ className = '' }: PagePreviewProps) {
                         <iframe
                             ref={iframeRef}
                             src={fullPreviewUrl}
-                            className="w-full h-full border-0"
+                            className="w-full h-full border-0 bg-zinc-950"
+                            style={{ backgroundColor: '#09090b' }}
                             onLoad={handleIframeLoad}
                             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                         />

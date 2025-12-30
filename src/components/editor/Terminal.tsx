@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronDown, ChevronUp, Terminal as TerminalIcon } from 'lucide-react';
+import { ChevronDown, ChevronUp, Terminal as TerminalIcon, RefreshCw } from 'lucide-react';
+import { useWebContainerStore } from '@/stores/webcontainer-store';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalProps {
@@ -12,8 +13,49 @@ export function Terminal({ className = '' }: TerminalProps) {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<any>(null);
     const fitAddonRef = useRef<any>(null);
+    const shellProcessRef = useRef<any>(null);
+    const writerRef = useRef<WritableStreamDefaultWriter<string> | null>(null);
     const [isMinimized, setIsMinimized] = useState(false);
     const [isReady, setIsReady] = useState(false);
+    const [isConnected, setIsConnected] = useState(false);
+
+    const { instance, status } = useWebContainerStore();
+
+    // WebContainer 쉘 시작
+    const startShell = useCallback(async (xterm: any) => {
+        if (!instance || shellProcessRef.current) return;
+
+        try {
+            // jsh (WebContainer 쉘) 시작
+            const shellProcess = await instance.spawn('jsh', {
+                terminal: {
+                    cols: xterm.cols,
+                    rows: xterm.rows,
+                },
+            });
+
+            shellProcessRef.current = shellProcess;
+
+            // 쉘 출력 → 터미널에 표시
+            shellProcess.output.pipeTo(
+                new WritableStream({
+                    write(data) {
+                        xterm.write(data);
+                    },
+                })
+            );
+
+            // 터미널 입력 → 쉘로 전달
+            const writer = shellProcess.input.getWriter();
+            writerRef.current = writer;
+
+            setIsConnected(true);
+            console.log('[Terminal] WebContainer shell connected');
+        } catch (error) {
+            console.error('[Terminal] Failed to start shell:', error);
+            xterm.writeln('\x1b[31m❌ WebContainer 쉘 연결 실패\x1b[0m');
+        }
+    }, [instance]);
 
     // xterm 초기화
     const initTerminal = useCallback(async () => {
@@ -75,29 +117,11 @@ export function Terminal({ className = '' }: TerminalProps) {
         xterm.writeln('\x1b[90m  WebContainer 터미널 - 브라우저에서 Node.js 실행\x1b[0m');
         xterm.writeln('\x1b[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m');
         xterm.writeln('');
-        xterm.write('\x1b[32m➜\x1b[0m \x1b[36mvibric\x1b[0m $ ');
 
-        // 간단한 입력 핸들러 (데모용)
-        let currentLine = '';
+        // 터미널 입력 → WebContainer 쉘로 전달
         xterm.onData((data: string) => {
-            if (data === '\r') {
-                // Enter 키
-                xterm.writeln('');
-                if (currentLine.trim()) {
-                    handleCommand(xterm, currentLine.trim());
-                }
-                currentLine = '';
-                xterm.write('\x1b[32m➜\x1b[0m \x1b[36mvibric\x1b[0m $ ');
-            } else if (data === '\u007F') {
-                // Backspace
-                if (currentLine.length > 0) {
-                    currentLine = currentLine.slice(0, -1);
-                    xterm.write('\b \b');
-                }
-            } else if (data.charCodeAt(0) >= 32) {
-                // 일반 문자만 처리 (제어 문자 제외)
-                currentLine += data;
-                xterm.write(data);
+            if (writerRef.current) {
+                writerRef.current.write(data);
             }
         });
 
@@ -105,6 +129,13 @@ export function Terminal({ className = '' }: TerminalProps) {
         const handleResize = () => {
             if (fitAddonRef.current) {
                 fitAddonRef.current.fit();
+            }
+            // 쉘 리사이즈
+            if (shellProcessRef.current && xtermRef.current) {
+                shellProcessRef.current.resize?.({
+                    cols: xtermRef.current.cols,
+                    rows: xtermRef.current.rows,
+                });
             }
         };
         window.addEventListener('resize', handleResize);
@@ -131,12 +162,40 @@ export function Terminal({ className = '' }: TerminalProps) {
         };
     }, [initTerminal]);
 
+    // WebContainer 준비되면 쉘 연결
+    useEffect(() => {
+        if (instance && status === 'running' && xtermRef.current && !shellProcessRef.current) {
+            startShell(xtermRef.current);
+        }
+    }, [instance, status, startShell]);
+
     // 터미널 크기 재조정
     useEffect(() => {
         if (fitAddonRef.current && !isMinimized && isReady) {
             setTimeout(() => fitAddonRef.current?.fit(), 100);
         }
     }, [isMinimized, isReady]);
+
+    // 쉘 재연결
+    const reconnectShell = useCallback(async () => {
+        if (!instance || !xtermRef.current) return;
+
+        // 기존 쉘 정리
+        if (writerRef.current) {
+            try {
+                writerRef.current.close();
+            } catch (e) { /* ignore */ }
+        }
+        shellProcessRef.current = null;
+        writerRef.current = null;
+        setIsConnected(false);
+
+        // 터미널 클리어 후 재연결
+        xtermRef.current.clear();
+        xtermRef.current.writeln('\x1b[33m🔄 쉘 재연결 중...\x1b[0m');
+
+        await startShell(xtermRef.current);
+    }, [instance, startShell]);
 
     return (
         <div className={`flex flex-col bg-zinc-900 border-t border-zinc-800 ${className}`}>
@@ -145,8 +204,24 @@ export function Terminal({ className = '' }: TerminalProps) {
                 <div className="flex items-center gap-2">
                     <TerminalIcon size={14} className="text-zinc-400" />
                     <span className="text-xs font-medium text-zinc-400">터미널</span>
+                    {isConnected ? (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">연결됨</span>
+                    ) : status === 'running' ? (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">연결 중...</span>
+                    ) : (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-zinc-700 text-zinc-400 rounded">대기 중</span>
+                    )}
                 </div>
                 <div className="flex items-center gap-1">
+                    {instance && (
+                        <button
+                            onClick={reconnectShell}
+                            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+                            title="쉘 재연결"
+                        >
+                            <RefreshCw size={14} />
+                        </button>
+                    )}
                     <button
                         onClick={() => setIsMinimized(!isMinimized)}
                         className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
@@ -168,48 +243,3 @@ export function Terminal({ className = '' }: TerminalProps) {
     );
 }
 
-// 간단한 명령어 핸들러 (데모용)
-function handleCommand(xterm: any, command: string) {
-    const parts = command.split(' ');
-    const cmd = parts[0];
-    const args = parts.slice(1);
-
-    switch (cmd) {
-        case 'help':
-            xterm.writeln('\x1b[33m사용 가능한 명령어:\x1b[0m');
-            xterm.writeln('  \x1b[36mhelp\x1b[0m     - 도움말 표시');
-            xterm.writeln('  \x1b[36mclear\x1b[0m    - 화면 지우기');
-            xterm.writeln('  \x1b[36mls\x1b[0m       - 파일 목록');
-            xterm.writeln('  \x1b[36mecho\x1b[0m     - 텍스트 출력');
-            xterm.writeln('');
-            xterm.writeln('\x1b[90m* WebContainer 연결 시 npm, node 명령어 사용 가능\x1b[0m');
-            break;
-
-        case 'clear':
-            xterm.clear();
-            break;
-
-        case 'ls':
-            xterm.writeln('\x1b[34msrc/\x1b[0m');
-            xterm.writeln('\x1b[34mpublic/\x1b[0m');
-            xterm.writeln('\x1b[34mdocs/\x1b[0m');
-            xterm.writeln('package.json');
-            xterm.writeln('tailwind.config.ts');
-            xterm.writeln('next.config.ts');
-            break;
-
-        case 'echo':
-            xterm.writeln(args.join(' '));
-            break;
-
-        case 'npm':
-        case 'node':
-        case 'npx':
-            xterm.writeln(`\x1b[33m⏳ ${cmd} 명령어는 WebContainer 연결 후 사용 가능합니다.\x1b[0m`);
-            break;
-
-        default:
-            xterm.writeln(`\x1b[31m명령어를 찾을 수 없습니다: ${cmd}\x1b[0m`);
-            xterm.writeln(`'help'를 입력하여 사용 가능한 명령어를 확인하세요.`);
-    }
-}

@@ -57,50 +57,161 @@ export function fileToFileSystemTree(path: string, content: string): FileSystemT
   return result;
 }
 
-// 기본 프로젝트 템플릿 - npm 없이 Node.js 내장 HTTP 서버 사용
+// =============================================================================
+// Vite + React 기본 프로젝트 템플릿
+// =============================================================================
 export const defaultProjectFiles: FileSystemTree = {
-  'server.js': {
+  'package.json': {
     file: {
-      contents: `const http = require('http');
-const fs = require('fs');
-const path = require('path');
+      contents: `{
+  "name": "vibric-react-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.0.8"
+  }
+}`
+    }
+  },
+  'vite.config.js': {
+    file: {
+      contents: `import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
-const mimeTypes = {
-    '.html': 'text/html',
-    '.js': 'text/javascript',
-    '.css': 'text/css',
-    '.json': 'application/json',
-    '.png': 'image/png',
-    '.jpg': 'image/jpg',
-    '.svg': 'image/svg+xml',
-};
+// Vibric Ready Signal Plugin - CSS 로드 완료 감지
+function vibricPlugin() {
+  return {
+    name: 'vibric-ready',
+    transformIndexHtml(html) {
+      const vibricScript = \`
+<script>
+(function() {
+  let selectionModeEnabled = true;
+  
+  // CSS 로드 완료 감지 및 신호 전송
+  function checkCssReady() {
+    const styles = document.styleSheets;
+    const hasStyles = styles.length > 0;
+    const bodyComputed = window.getComputedStyle(document.body);
+    const hasBackground = bodyComputed.backgroundColor !== 'rgba(0, 0, 0, 0)';
+    
+    if (hasStyles || hasBackground) {
+      window.parent.postMessage({ type: 'vibric-css-ready' }, '*');
+      return true;
+    }
+    return false;
+  }
+  
+  // DOM 로드 후 CSS 체크 (폴링)
+  function waitForCss() {
+    if (!checkCssReady()) {
+      setTimeout(waitForCss, 100);
+    }
+  }
+  
+  // 선택 모드 메시지 수신
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'vibric-selection-mode') {
+      selectionModeEnabled = e.data.enabled;
+      document.body.style.cursor = selectionModeEnabled ? 'crosshair' : '';
+    }
+  });
+  
+  // CSS 셀렉터 생성
+  function getSelector(el) {
+    if (el.dataset && el.dataset.vibricId) return '[data-vibric-id="' + el.dataset.vibricId + '"]';
+    if (el.id) return '#' + el.id;
+    let path = [];
+    while (el && el.nodeType === 1 && el !== document.body) {
+      let selector = el.tagName.toLowerCase();
+      if (el.className && typeof el.className === 'string') {
+        const classes = el.className.trim().split(/\\\\s+/).filter(c => c).slice(0, 2);
+        if (classes.length) selector += '.' + classes.join('.');
+      }
+      path.unshift(selector);
+      el = el.parentElement;
+    }
+    return path.join(' > ');
+  }
+  
+  // 요소 정보 전송
+  function sendElementInfo(type, el) {
+    if (!el || el === document.body || el === document.documentElement) return;
+    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return;
+    
+    const rect = el.getBoundingClientRect();
+    window.parent.postMessage({
+      type: type,
+      data: {
+        selector: getSelector(el),
+        tagName: el.tagName,
+        className: el.className || '',
+        textContent: (el.textContent || '').slice(0, 100),
+        rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+      }
+    }, '*');
+  }
+  
+  let hoveredElement = null;
+  
+  document.addEventListener('mouseover', function(e) {
+    if (!selectionModeEnabled) return;
+    if (hoveredElement !== e.target) {
+      hoveredElement = e.target;
+      sendElementInfo('element-hover', e.target);
+    }
+  }, true);
+  
+  document.addEventListener('mouseout', function(e) {
+    if (!selectionModeEnabled) return;
+    if (!e.relatedTarget || !document.body.contains(e.relatedTarget)) {
+      hoveredElement = null;
+      window.parent.postMessage({ type: 'element-leave' }, '*');
+    }
+  }, true);
+  
+  document.addEventListener('click', function(e) {
+    if (!selectionModeEnabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    sendElementInfo('element-select', e.target);
+  }, true);
+  
+  // 초기화
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', waitForCss);
+  } else {
+    waitForCss();
+  }
+  
+  // 부모에게 준비 완료 알림
+  window.parent.postMessage({ type: 'vibric-iframe-ready' }, '*');
+})();
+</script>\`;
+      return html.replace('</head>', vibricScript + '</head>');
+    }
+  };
+}
 
-const server = http.createServer((req, res) => {
-    let filePath = '.' + (req.url === '/' ? '/index.html' : req.url);
-    const extname = path.extname(filePath);
-    const contentType = mimeTypes[extname] || 'application/octet-stream';
-
-    fs.readFile(filePath, (err, content) => {
-        if (err) {
-            if (err.code === 'ENOENT') {
-                res.writeHead(404);
-                res.end('File not found');
-            } else {
-                res.writeHead(500);
-                res.end('Server error: ' + err.code);
-            }
-        } else {
-            res.writeHead(200, { 'Content-Type': contentType });
-            res.end(content);
-        }
-    });
-});
-
-const PORT = 3001;
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(\`Server running at http://localhost:\${PORT}/\`);
-});
-`
+export default defineConfig({
+  plugins: [react(), vibricPlugin()],
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: false
+  }
+});`
     }
   },
   'index.html': {
@@ -110,111 +221,171 @@ server.listen(PORT, '0.0.0.0', () => {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vibric Preview</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>Vibric React App</title>
   </head>
   <body>
-    <div class="hero" data-vibric-id="hero">
-      <h1>Welcome to Vibric</h1>
-      <p>AI-Powered Vibe Coding Builder</p>
-    </div>
-
-    <div class="cards">
-      <div class="card" data-vibric-id="feature-canvas">
-        <h3>Canvas</h3>
-        <p>Visual editing experience</p>
-      </div>
-      <div class="card" data-vibric-id="feature-code">
-        <h3>Code</h3>
-        <p>Live code editor</p>
-      </div>
-      <div class="card" data-vibric-id="feature-ai">
-        <h3>AI</h3>
-        <p>AI-powered assistance</p>
-      </div>
-    </div>
-
-    <button class="btn" data-vibric-id="cta-button">Get Started</button>
-
-    <script src="app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>`
     }
   },
-  'styles.css': {
-    file: {
-      contents: `* { margin: 0; padding: 0; box-sizing: border-box; }
-body { 
-    font-family: system-ui, -apple-system, sans-serif; 
-    background: #09090b;
-    color: white;
-    min-height: 100vh;
-    padding: 2rem;
+  'src': {
+    directory: {
+      'main.jsx': {
+        file: {
+          contents: `import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);`
+        }
+      },
+      'App.jsx': {
+        file: {
+          contents: `import './App.css';
+
+function App() {
+  return (
+    <div className="app">
+      <header className="hero" data-vibric-id="hero">
+        <h1>Welcome to Vibric</h1>
+        <p>AI-Powered React Development</p>
+      </header>
+
+      <main className="cards">
+        <div className="card" data-vibric-id="card-1">
+          <h3>⚡ Fast</h3>
+          <p>Powered by Vite for instant HMR</p>
+        </div>
+        <div className="card" data-vibric-id="card-2">
+          <h3>🎨 Beautiful</h3>
+          <p>AI-crafted modern designs</p>
+        </div>
+        <div className="card" data-vibric-id="card-3">
+          <h3>🤖 Smart</h3>
+          <p>AI assists your development</p>
+        </div>
+      </main>
+
+      <button className="btn" data-vibric-id="cta-button">
+        Get Started
+      </button>
+    </div>
+  );
 }
+
+export default App;`
+        }
+      },
+      'index.css': {
+        file: {
+          contents: `* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #09090b;
+  color: white;
+  min-height: 100vh;
+}`
+        }
+      },
+      'App.css': {
+        file: {
+          contents: `.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
 .hero {
-    padding: 2rem;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    border-radius: 1rem;
-    margin-bottom: 2rem;
+  padding: 3rem 2rem;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  border-radius: 1rem;
+  margin-bottom: 2rem;
+  text-align: center;
 }
-.hero h1 { font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem; }
-.hero p { opacity: 0.8; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem; }
-.card { padding: 1.5rem; background: #27272a; border-radius: 0.5rem; cursor: pointer; transition: transform 0.2s; }
-.card:hover { transform: translateY(-2px); }
-.card h3 { font-size: 1.125rem; font-weight: 600; margin-bottom: 0.5rem; }
-.card p { font-size: 0.875rem; color: #a1a1aa; }
-.btn { 
-    padding: 0.75rem 1.5rem; 
-    background: #3b82f6; 
-    color: white; 
-    font-weight: 500; 
-    border-radius: 0.5rem; 
-    border: none; 
-    cursor: pointer;
-    transition: background 0.2s;
+
+.hero h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
 }
-.btn:hover { background: #2563eb; }`
-    }
-  },
-  'app.js': {
-    file: {
-      contents: `// Vibric element selection support
-document.querySelectorAll('[data-vibric-id]').forEach(el => {
-    el.style.cursor = 'pointer';
-    el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const rect = el.getBoundingClientRect();
-        window.parent.postMessage({
-            type: 'element-select',
-            data: {
-                id: el.dataset.vibricId,
-                tagName: el.tagName.toLowerCase(),
-                rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-            }
-        }, '*');
-    });
-    el.addEventListener('mouseenter', () => {
-        const rect = el.getBoundingClientRect();
-        window.parent.postMessage({
-            type: 'element-hover',
-            data: {
-                id: el.dataset.vibricId,
-                tagName: el.tagName.toLowerCase(),
-                rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-            }
-        }, '*');
-    });
-    el.addEventListener('mouseleave', () => {
-        window.parent.postMessage({ type: 'element-leave' }, '*');
-    });
-});
-console.log('Vibric Preview loaded');`
+
+.hero p {
+  font-size: 1.125rem;
+  opacity: 0.9;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.card {
+  padding: 1.5rem;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  border-color: #3b82f6;
+}
+
+.card h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.card p {
+  font-size: 0.875rem;
+  color: #a1a1aa;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.875rem 2rem;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.3);
+}`
+        }
+      }
     }
   }
 };
 
-// 기본 파일 노드 생성 (FileSystemStore 초기화용) - 중첩 디렉토리 구조
+// =============================================================================
+// 기본 파일 노드 생성 (FileSystemStore 초기화용) - Vite + React 구조
+// =============================================================================
 export const defaultFileNodes: FileNode[] = [
   {
     name: 'src',
@@ -237,52 +408,157 @@ export const defaultFileNodes: FileNode[] = [
         children: [],
       },
       {
-        name: 'hooks',
-        path: 'src/hooks',
-        type: 'directory',
-        isOpen: false,
-        children: [],
+        name: 'main.jsx',
+        path: 'src/main.jsx',
+        type: 'file',
+        content: `import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);`
       },
       {
-        name: 'lib',
-        path: 'src/lib',
-        type: 'directory',
-        isOpen: false,
-        children: [],
+        name: 'App.jsx',
+        path: 'src/App.jsx',
+        type: 'file',
+        content: `import './App.css';
+
+function App() {
+  return (
+    <div className="app">
+      <header className="hero" data-vibric-id="hero">
+        <h1>Welcome to Vibric</h1>
+        <p>AI-Powered React Development</p>
+      </header>
+
+      <main className="cards">
+        <div className="card" data-vibric-id="card-1">
+          <h3>⚡ Fast</h3>
+          <p>Powered by Vite for instant HMR</p>
+        </div>
+        <div className="card" data-vibric-id="card-2">
+          <h3>🎨 Beautiful</h3>
+          <p>AI-crafted modern designs</p>
+        </div>
+        <div className="card" data-vibric-id="card-3">
+          <h3>🤖 Smart</h3>
+          <p>AI assists your development</p>
+        </div>
+      </main>
+
+      <button className="btn" data-vibric-id="cta-button">
+        Get Started
+      </button>
+    </div>
+  );
+}
+
+export default App;`
       },
+      {
+        name: 'index.css',
+        path: 'src/index.css',
+        type: 'file',
+        content: `* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #09090b;
+  color: white;
+  min-height: 100vh;
+}`
+      },
+      {
+        name: 'App.css',
+        path: 'src/App.css',
+        type: 'file',
+        content: `.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.hero {
+  padding: 3rem 2rem;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  border-radius: 1rem;
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.hero h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.hero p {
+  font-size: 1.125rem;
+  opacity: 0.9;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.card {
+  padding: 1.5rem;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 0.75rem;
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  border-color: #3b82f6;
+}
+
+.card h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.card p {
+  font-size: 0.875rem;
+  color: #a1a1aa;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.875rem 2rem;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.3);
+}`
+      }
     ],
-  },
-  {
-    name: 'server.js',
-    path: 'server.js',
-    type: 'file',
-    content: `const http = require('http');
-const fs = require('fs');
-const path = require('path');
-
-const mimeTypes = {
-    '.html': 'text/html',
-    '.js': 'text/javascript',
-    '.css': 'text/css',
-};
-
-const server = http.createServer((req, res) => {
-    let filePath = '.' + (req.url === '/' ? '/index.html' : req.url);
-    const extname = path.extname(filePath);
-    const contentType = mimeTypes[extname] || 'text/plain';
-
-    fs.readFile(filePath, (err, content) => {
-        if (err) {
-            res.writeHead(err.code === 'ENOENT' ? 404 : 500);
-            res.end(err.code === 'ENOENT' ? 'Not found' : 'Error');
-        } else {
-            res.writeHead(200, { 'Content-Type': contentType });
-            res.end(content);
-        }
-    });
-});
-
-server.listen(3001, '0.0.0.0', () => console.log('Server on port 3001'));`
   },
   {
     name: 'index.html',
@@ -293,127 +569,154 @@ server.listen(3001, '0.0.0.0', () => console.log('Server on port 3001'));`
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vibric Preview</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>Vibric React App</title>
   </head>
   <body>
-    <div class="hero" data-vibric-id="hero">
-      <h1>Welcome to Vibric</h1>
-      <p>AI-Powered Vibe Coding Builder</p>
-    </div>
-
-    <div class="cards">
-      <div class="card" data-vibric-id="feature-canvas">
-        <h3>Canvas</h3>
-        <p>Visual editing experience</p>
-      </div>
-      <div class="card" data-vibric-id="feature-code">
-        <h3>Code</h3>
-        <p>Live code editor</p>
-      </div>
-      <div class="card" data-vibric-id="feature-ai">
-        <h3>AI</h3>
-        <p>AI-powered assistance</p>
-      </div>
-    </div>
-
-    <button class="btn" data-vibric-id="cta-button">Get Started</button>
-
-    <script src="app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>`
-  },
-  {
-    name: 'styles.css',
-    path: 'styles.css',
-    type: 'file',
-    content: `* { margin: 0; padding: 0; box-sizing: border-box; }
-body { 
-    font-family: system-ui, -apple-system, sans-serif; 
-    background: #09090b;
-    color: white;
-    min-height: 100vh;
-    padding: 2rem;
-}
-.hero {
-    padding: 2rem;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    border-radius: 1rem;
-    margin-bottom: 2rem;
-}
-.hero h1 { font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem; }
-.hero p { opacity: 0.8; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem; }
-.card { padding: 1.5rem; background: #27272a; border-radius: 0.5rem; cursor: pointer; transition: transform 0.2s; }
-.card:hover { transform: translateY(-2px); }
-.card h3 { font-size: 1.125rem; font-weight: 600; margin-bottom: 0.5rem; }
-.card p { font-size: 0.875rem; color: #a1a1aa; }
-.btn { 
-    padding: 0.75rem 1.5rem; 
-    background: #3b82f6; 
-    color: white; 
-    font-weight: 500; 
-    border-radius: 0.5rem; 
-    border: none; 
-    cursor: pointer;
-    transition: background 0.2s;
-}
-.btn:hover { background: #2563eb; }`
-  },
-  {
-    name: 'app.js',
-    path: 'app.js',
-    type: 'file',
-    content: `// Vibric element selection support
-document.querySelectorAll('[data-vibric-id]').forEach(el => {
-    el.style.cursor = 'pointer';
-    el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const rect = el.getBoundingClientRect();
-        window.parent.postMessage({
-            type: 'element-select',
-            data: {
-                id: el.dataset.vibricId,
-                tagName: el.tagName.toLowerCase(),
-                className: el.className || '',
-                textContent: (el.textContent || '').substring(0, 50),
-                rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-                selector: '[data-vibric-id="' + el.dataset.vibricId + '"]'
-            }
-        }, '*');
-    });
-    el.addEventListener('mouseenter', () => {
-        const rect = el.getBoundingClientRect();
-        window.parent.postMessage({
-            type: 'element-hover',
-            data: {
-                id: el.dataset.vibricId,
-                tagName: el.tagName.toLowerCase(),
-                rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-                selector: '[data-vibric-id="' + el.dataset.vibricId + '"]'
-            }
-        }, '*');
-    });
-    el.addEventListener('mouseleave', () => {
-        window.parent.postMessage({ type: 'element-leave' }, '*');
-    });
-});
-console.log('Vibric Preview loaded');`
   },
   {
     name: 'package.json',
     path: 'package.json',
     type: 'file',
     content: `{
-  "name": "vibric-preview",
-  "version": "1.0.0",
-  "description": "Vibric Preview Project",
-  "main": "server.js",
+  "name": "vibric-react-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.0.8"
   }
 }`
+  },
+  {
+    name: 'vite.config.js',
+    path: 'vite.config.js',
+    type: 'file',
+    content: `import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+// Vibric Ready Signal Plugin
+function vibricPlugin() {
+  return {
+    name: 'vibric-ready',
+    transformIndexHtml(html) {
+      const vibricScript = \`
+<script>
+(function() {
+  let selectionModeEnabled = true;
+  
+  function checkCssReady() {
+    const styles = document.styleSheets;
+    if (styles.length > 0) {
+      window.parent.postMessage({ type: 'vibric-css-ready' }, '*');
+      return true;
+    }
+    return false;
+  }
+  
+  function waitForCss() {
+    if (!checkCssReady()) setTimeout(waitForCss, 100);
+  }
+  
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'vibric-selection-mode') {
+      selectionModeEnabled = e.data.enabled;
+      document.body.style.cursor = selectionModeEnabled ? 'crosshair' : '';
+    }
+  });
+  
+  function getSelector(el) {
+    if (el.dataset && el.dataset.vibricId) return '[data-vibric-id="' + el.dataset.vibricId + '"]';
+    if (el.id) return '#' + el.id;
+    let path = [];
+    while (el && el.nodeType === 1 && el !== document.body) {
+      let selector = el.tagName.toLowerCase();
+      if (el.className && typeof el.className === 'string') {
+        const classes = el.className.trim().split(/\\\\s+/).filter(c => c).slice(0, 2);
+        if (classes.length) selector += '.' + classes.join('.');
+      }
+      path.unshift(selector);
+      el = el.parentElement;
+    }
+    return path.join(' > ');
+  }
+  
+  function sendElementInfo(type, el) {
+    if (!el || el === document.body || el === document.documentElement) return;
+    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return;
+    const rect = el.getBoundingClientRect();
+    window.parent.postMessage({
+      type: type,
+      data: {
+        selector: getSelector(el),
+        tagName: el.tagName,
+        className: el.className || '',
+        textContent: (el.textContent || '').slice(0, 100),
+        rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+      }
+    }, '*');
+  }
+  
+  let hoveredElement = null;
+  
+  document.addEventListener('mouseover', function(e) {
+    if (!selectionModeEnabled) return;
+    if (hoveredElement !== e.target) {
+      hoveredElement = e.target;
+      sendElementInfo('element-hover', e.target);
+    }
+  }, true);
+  
+  document.addEventListener('mouseout', function(e) {
+    if (!selectionModeEnabled) return;
+    if (!e.relatedTarget || !document.body.contains(e.relatedTarget)) {
+      hoveredElement = null;
+      window.parent.postMessage({ type: 'element-leave' }, '*');
+    }
+  }, true);
+  
+  document.addEventListener('click', function(e) {
+    if (!selectionModeEnabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    sendElementInfo('element-select', e.target);
+  }, true);
+  
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', waitForCss);
+  } else {
+    waitForCss();
+  }
+  
+  window.parent.postMessage({ type: 'vibric-iframe-ready' }, '*');
+})();
+</script>\`;
+      return html.replace('</head>', vibricScript + '</head>');
+    }
+  };
+}
+
+export default defineConfig({
+  plugins: [react(), vibricPlugin()],
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: false
+  }
+});`
   }
 ];
 

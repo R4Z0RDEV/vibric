@@ -256,24 +256,24 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
                     <div className="flex items-center gap-1 px-4 pt-3">
                         <div className="flex rounded-lg overflow-hidden liquid-glass-subtle">
                             <button
-                                onClick={() => setInputMode('spec')}
+                                onClick={() => setInputMode('multi')}
                                 className={`
                                 px-4 py-1.5 text-sm font-medium transition-all duration-200
                                 relative z-10
-                                ${inputMode === 'spec'
+                                ${inputMode === 'multi'
                                         ? 'bg-white/20 text-white'
                                         : 'text-white/50 hover:text-white/80'
                                     }
                             `}
                             >
-                                Spec
+                                Multi
                             </button>
                             <button
                                 onClick={() => setInputMode('fast')}
                                 className={`
                                 px-4 py-1.5 text-sm font-medium transition-all duration-200
-                                relative z-10
-                                ${inputMode === 'fast'
+                            relative z-10
+                            ${inputMode === 'fast'
                                         ? 'bg-white/20 text-white'
                                         : 'text-white/50 hover:text-white/80'
                                     }
@@ -341,7 +341,7 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
                             onKeyDown={handleKeyDown}
                             onInput={handleInput}
                             placeholder={
-                                inputMode === 'spec'
+                                inputMode === 'multi'
                                     ? 'What do you want to build?'
                                     : '무엇을 만들어 드릴까요?'
                             }
@@ -468,48 +468,50 @@ export function ChatInput({ onSubmit }: ChatInputProps) {
                         </button>
                     </div>
                 </div>
-            </div>
+            </div >
 
             {/* Model Dropdown Portal - 버튼 바로 위에 fixed로 배치 */}
-            {isMounted && showModelDropdown && createPortal(
-                <div
-                    ref={modelDropdownRef}
-                    className="
+            {
+                isMounted && showModelDropdown && createPortal(
+                    <div
+                        ref={modelDropdownRef}
+                        className="
                         liquid-glass-card rounded-lg
                         py-1 min-w-[140px]
                         animate-fade-in
                     "
-                    style={{
-                        position: 'fixed',
-                        top: dropdownPosition.top,
-                        left: dropdownPosition.left,
-                        transform: 'translateY(-100%)',
-                        zIndex: 9999,
-                    }}
-                >
-                    {AI_MODELS.map((model) => (
-                        <button
-                            key={model.id}
-                            onClick={() => {
-                                setSelectedModel(model.id);
-                                setShowModelDropdown(false);
-                            }}
-                            className={`
+                        style={{
+                            position: 'fixed',
+                            top: dropdownPosition.top,
+                            left: dropdownPosition.left,
+                            transform: 'translateY(-100%)',
+                            zIndex: 9999,
+                        }}
+                    >
+                        {AI_MODELS.map((model) => (
+                            <button
+                                key={model.id}
+                                onClick={() => {
+                                    setSelectedModel(model.id);
+                                    setShowModelDropdown(false);
+                                }}
+                                className={`
                             w-full flex items-center gap-2 px-3 py-2
                             text-sm transition-colors
                             ${selectedModel === model.id
-                                    ? 'text-white bg-white/10'
-                                    : 'text-white/70 hover:text-white hover:bg-white/5'
-                                }
+                                        ? 'text-white bg-white/10'
+                                        : 'text-white/70 hover:text-white hover:bg-white/5'
+                                    }
                         `}
-                        >
-                            <span>{model.icon}</span>
-                            <span className="relative z-10">{model.name}</span>
-                        </button>
-                    ))}
-                </div>,
-                document.body
-            )}
+                            >
+                                <span>{model.icon}</span>
+                                <span className="relative z-10">{model.name}</span>
+                            </button>
+                        ))}
+                    </div>,
+                    document.body
+                )
+            }
 
         </>
     );
